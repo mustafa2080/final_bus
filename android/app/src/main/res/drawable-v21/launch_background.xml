@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- تخصيص شاشة البداية بدون شاشة بيضاء -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- خلفية متدرجة بألوان التطبيق بدلاً من الأبيض -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#4A90E2"
+                android:centerColor="#5BA3F5"
+                android:endColor="#6CB4FF"
+                android:type="linear" />
+        </shape>
+    </item>
+
+    <!-- شعار التطبيق في المنتصف (اختياري - يمكنك إضافة صورة هنا) -->
+    <!-- <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/ic_launcher" />
+    </item> -->
+</layer-list>

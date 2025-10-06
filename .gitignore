@@ -1,0 +1,157 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS related
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/flutter_assets/
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+
+# macOS related
+**/macos/Flutter/ephemeral/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Linux related
+**/linux/flutter/ephemeral/
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/generated_plugin_registrant.h
+**/linux/flutter/generated_plugins.cmake
+
+# Windows related
+**/windows/flutter/ephemeral/
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+
+# Web related
+
+# Firebase related
+**/android/app/google-services.json
+**/ios/Runner/GoogleService-Info.plist
+**/ios/firebase_app_id_file.json
+**/web/firebase-config.js
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Log files
+*.log
+logs/
+
+# Coverage files
+coverage/
+*.lcov
+
+# Test related
+test_driver/
+integration_test/driver/
+
+# Additional build and cache directories
+**/build/
+**/.dart_tool/
+**/pubspec.lock
+**/Podfile.lock
+**/package-lock.json
+**/yarn.lock
+**/node_modules/
+**/.gradle/
+**/DerivedData/
+**/.build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+
+# IDE and editor files
+**/.vscode/
+**/.idea/
+**/*.iml
+**/*.ipr
+**/*.iws
+
+# OS generated files
+**/.DS_Store
+**/Thumbs.db
+**/*.tmp
+**/*.temp
+**/*~
+
+# Large binary files that shouldn't be in version control
+**/*.apk
+**/*.ipa
+**/*.app
+**/*.exe
+**/*.dmg
+**/*.zip
+**/*.tar.gz
+**/*.rar
+
+# Firebase and sensitive files
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_app_id_file.json
+**/.env
+**/.env.local
+**/.env.production
+**/.env.staging
