@@ -1,5 +1,24 @@
 const admin = require('firebase-admin');
+const express = require('express');
+const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
+
+// إعداد Express server
+const app = express();
+const server = http.createServer(app);
+
+// إعداد Socket.IO مع CORS
+const io = new Server(server, {
+  cors: {
+    origin: '*', // في Production غيّرها للدومين الحقيقي
+    methods: ['GET', 'POST']
+  }
+});
+
+app.use(cors());
+app.use(express.json());
 
 // تهيئة Firebase Admin SDK
 const serviceAccount = process.env.SERVICE_ACCOUNT_KEY 
@@ -16,6 +35,518 @@ const messaging = admin.messaging();
 
 console.log('🚀 MyBus Notification Service Started!');
 console.log('📡 Listening to Firestore changes...\n');
+
+// ============================================
+// 🔥 API Endpoints
+// ============================================
+
+// ✅ Endpoint لحذف FCM Token عند Logout
+app.post('/api/logout', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'userId is required' 
+      });
+    }
+    
+    console.log(`\n🚪 ===========================================`);
+    console.log(`🚪 طلب Logout من المستخدم: ${userId}`);
+    console.log(`===========================================\n`);
+    
+    // حذف FCM Token من Firestore
+    await db.collection('users').doc(userId).update({
+      fcmToken: admin.firestore.FieldValue.delete(),
+      lastLogout: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log(`✅ تم حذف FCM Token بنجاح`);
+    console.log(`👤 المستخدم: ${userId}`);
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-EG')}\n`);
+    
+    res.json({ 
+      success: true, 
+      message: 'FCM Token deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('❌ خطأ في حذف FCM Token:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// ✅ Endpoint لتحديث FCM Token عند Login
+app.post('/api/updateToken', async (req, res) => {
+  try {
+    const { userId, fcmToken } = req.body;
+    
+    if (!userId || !fcmToken) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'userId and fcmToken are required' 
+      });
+    }
+    
+    console.log(`\n🔑 ===========================================`);
+    console.log(`🔑 تحديث FCM Token للمستخدم: ${userId}`);
+    console.log(`📱 Token: ${fcmToken.substring(0, 30)}...`);
+    console.log(`===========================================\n`);
+    
+    // تحديث FCM Token في Firestore
+    await db.collection('users').doc(userId).update({
+      fcmToken: fcmToken,
+      lastTokenUpdate: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log(`✅ تم تحديث FCM Token بنجاح`);
+    console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-EG')}\n`);
+    
+    res.json({ 
+      success: true, 
+      message: 'FCM Token updated successfully' 
+    });
+    
+  } catch (error) {
+    console.error('❌ خطأ في تحديث FCM Token:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    notifications: {
+      sent: notificationsSent,
+      failed: notificationsFailed
+    }
+  });
+});
+
+// ============================================
+// 🗺️ Socket.IO - Live Bus Tracking
+// ============================================
+
+// تخزين مؤقت لمواقع الباصات النشطة
+const activeBuses = new Map();
+// Map structure: busId => { location, timestamp, supervisorId, socketId, students }
+
+// تخزين اشتراكات أولياء الأمور
+const parentSubscriptions = new Map();
+// Map structure: socketId => { userId, busIds: Set() }
+
+console.log('\n🔌 ===========================================');
+console.log('🔌 Socket.IO Server Initializing...');
+console.log('===========================================\n');
+
+io.on('connection', (socket) => {
+  console.log(`\n✅ عميل جديد متصل: ${socket.id}`);
+  console.log(`📊 إجمالي الاتصالات النشطة: ${io.engine.clientsCount}`);
+  
+  // ====================================
+  // 🚌 السوبرفايزر: بدء تتبع الباص
+  // ====================================
+  socket.on('supervisor:startTracking', async (data) => {
+    try {
+      const { busId, supervisorId, latitude, longitude } = data;
+      
+      console.log(`\n🚌 ===========================================`);
+      console.log(`🚌 بدء تتبع باص جديد`);
+      console.log(`🆔 Bus ID: ${busId}`);
+      console.log(`👤 Supervisor ID: ${supervisorId}`);
+      console.log(`📍 الموقع الأولي: [${latitude}, ${longitude}]`);
+      console.log(`===========================================\n`);
+      
+      // جلب بيانات الباص من Firestore
+      const busDoc = await db.collection('buses').doc(busId).get();
+      
+      if (!busDoc.exists) {
+        console.log(`❌ الباص غير موجود: ${busId}`);
+        socket.emit('error', { message: 'Bus not found' });
+        return;
+      }
+      
+      const busData = busDoc.data();
+      
+      // جلب الطلاب المسجلين في هذا الباص
+      const studentsSnapshot = await db.collection('students')
+        .where('busId', '==', busId)
+        .get();
+      
+      const studentsList = [];
+      studentsSnapshot.forEach(doc => {
+        studentsList.push({
+          id: doc.id,
+          name: doc.data().name,
+          parentId: doc.data().parentId
+        });
+      });
+      
+      console.log(`👥 عدد الطلاب في الباص: ${studentsList.length}`);
+      
+      // حفظ بيانات الباص النشط
+      activeBuses.set(busId, {
+        busId,
+        supervisorId,
+        socketId: socket.id,
+        location: { latitude, longitude },
+        timestamp: Date.now(),
+        busNumber: busData.busNumber || busId,
+        driverName: busData.driverName || 'غير محدد',
+        students: studentsList,
+        isTracking: true
+      });
+      
+      // تحديث حالة الباص في Firestore
+      await db.collection('buses').doc(busId).update({
+        isTracking: true,
+        lastLocation: {
+          latitude,
+          longitude,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        },
+        currentSupervisorId: supervisorId
+      });
+      
+      // انضمام السوبرفايزر لغرفة الباص
+      socket.join(`bus:${busId}`);
+      
+      console.log(`✅ السوبرفايزر انضم لغرفة: bus:${busId}`);
+      console.log(`📊 الباصات النشطة: ${activeBuses.size}`);
+      
+      // إرسال تأكيد للسوبرفايزر
+      socket.emit('supervisor:trackingStarted', {
+        success: true,
+        busId,
+        studentsCount: studentsList.length,
+        message: 'تم بدء التتبع بنجاح'
+      });
+      
+      // إشعار جميع أولياء الأمور المشتركين
+      io.to(`bus:${busId}:parents`).emit('bus:trackingStarted', {
+        busId,
+        busNumber: busData.busNumber,
+        location: { latitude, longitude },
+        timestamp: Date.now()
+      });
+      
+    } catch (error) {
+      console.error(`❌ خطأ في بدء التتبع:`, error.message);
+      socket.emit('error', { message: error.message });
+    }
+  });
+  
+  // ====================================
+  // 📍 السوبرفايزر: تحديث الموقع
+  // ====================================
+  socket.on('supervisor:updateLocation', async (data) => {
+    try {
+      const { busId, latitude, longitude, speed, heading } = data;
+      
+      const busInfo = activeBuses.get(busId);
+      
+      if (!busInfo) {
+        console.log(`⚠️ محاولة تحديث موقع باص غير نشط: ${busId}`);
+        return;
+      }
+      
+      // التحقق من أن المرسل هو السوبرفايزر الصحيح
+      if (busInfo.socketId !== socket.id) {
+        console.log(`⚠️ محاولة غير مصرح بها لتحديث موقع الباص`);
+        return;
+      }
+      
+      const now = Date.now();
+      const timeDiff = (now - busInfo.timestamp) / 1000; // بالثواني
+      
+      console.log(`📍 تحديث موقع الباص ${busInfo.busNumber}`);
+      console.log(`   الموقع: [${latitude.toFixed(6)}, ${longitude.toFixed(6)}]`);
+      console.log(`   السرعة: ${speed || 0} km/h`);
+      console.log(`   الوقت منذ آخر تحديث: ${timeDiff.toFixed(1)}s`);
+      
+      // تحديث البيانات المؤقتة
+      busInfo.location = { latitude, longitude };
+      busInfo.timestamp = now;
+      if (speed !== undefined) busInfo.speed = speed;
+      if (heading !== undefined) busInfo.heading = heading;
+      
+      activeBuses.set(busId, busInfo);
+      
+      // بث الموقع الجديد لجميع أولياء الأمور المشتركين
+      const updateData = {
+        busId,
+        location: { latitude, longitude },
+        speed: speed || 0,
+        heading: heading || 0,
+        timestamp: now,
+        busNumber: busInfo.busNumber
+      };
+      
+      io.to(`bus:${busId}:parents`).emit('bus:locationUpdate', updateData);
+      
+      // تحديث Firestore كل دقيقة (لتوفير التكلفة)
+      if (timeDiff >= 60) {
+        await db.collection('buses').doc(busId).update({
+          lastLocation: {
+            latitude,
+            longitude,
+            speed: speed || 0,
+            heading: heading || 0,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error(`❌ خطأ في تحديث الموقع:`, error.message);
+    }
+  });
+  
+  // ====================================
+  // 🛑 السوبرفايزر: إيقاف التتبع
+  // ====================================
+  socket.on('supervisor:stopTracking', async (data) => {
+    try {
+      const { busId } = data;
+      
+      console.log(`\n🛑 ===========================================`);
+      console.log(`🛑 إيقاف تتبع الباص: ${busId}`);
+      console.log(`===========================================\n`);
+      
+      const busInfo = activeBuses.get(busId);
+      
+      if (busInfo) {
+        // تحديث Firestore
+        await db.collection('buses').doc(busId).update({
+          isTracking: false,
+          trackingStoppedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // حذف من الباصات النشطة
+        activeBuses.delete(busId);
+        
+        // إشعار أولياء الأمور
+        io.to(`bus:${busId}:parents`).emit('bus:trackingStopped', {
+          busId,
+          busNumber: busInfo.busNumber,
+          timestamp: Date.now()
+        });
+        
+        // مغادرة الغرفة
+        socket.leave(`bus:${busId}`);
+        
+        console.log(`✅ تم إيقاف التتبع بنجاح`);
+        console.log(`📊 الباصات النشطة: ${activeBuses.size}`);
+        
+        socket.emit('supervisor:trackingStopped', {
+          success: true,
+          message: 'تم إيقاف التتبع'
+        });
+      }
+      
+    } catch (error) {
+      console.error(`❌ خطأ في إيقاف التتبع:`, error.message);
+      socket.emit('error', { message: error.message });
+    }
+  });
+  
+  // ====================================
+  // 👨‍👩‍👧 ولي الأمر: الاشتراك في تتبع باص
+  // ====================================
+  socket.on('parent:subscribeToBus', async (data) => {
+    try {
+      const { userId, busId } = data;
+      
+      console.log(`\n👨‍👩‍👧 ===========================================`);
+      console.log(`👨‍👩‍👧 ولي أمر يشترك في تتبع الباص`);
+      console.log(`👤 User ID: ${userId}`);
+      console.log(`🚌 Bus ID: ${busId}`);
+      console.log(`===========================================\n`);
+      
+      // التحقق من أن ولي الأمر له طالب في هذا الباص
+      const studentsSnapshot = await db.collection('students')
+        .where('parentId', '==', userId)
+        .where('busId', '==', busId)
+        .get();
+      
+      if (studentsSnapshot.empty) {
+        console.log(`⚠️ ولي الأمر ليس لديه طالب في هذا الباص`);
+        socket.emit('error', { message: 'You have no student in this bus' });
+        return;
+      }
+      
+      // حفظ الاشتراك
+      let subscription = parentSubscriptions.get(socket.id);
+      if (!subscription) {
+        subscription = { userId, busIds: new Set() };
+      }
+      subscription.busIds.add(busId);
+      parentSubscriptions.set(socket.id, subscription);
+      
+      // الانضمام لغرفة أولياء الأمور
+      socket.join(`bus:${busId}:parents`);
+      
+      console.log(`✅ ولي الأمر انضم لغرفة: bus:${busId}:parents`);
+      console.log(`📊 اشتراكات ولي الأمر: ${subscription.busIds.size} باص`);
+      
+      // إرسال الموقع الحالي إذا كان الباص نشط
+      const busInfo = activeBuses.get(busId);
+      if (busInfo) {
+        console.log(`📍 إرسال الموقع الحالي للباص`);
+        socket.emit('bus:currentLocation', {
+          busId,
+          busNumber: busInfo.busNumber,
+          location: busInfo.location,
+          speed: busInfo.speed || 0,
+          heading: busInfo.heading || 0,
+          timestamp: busInfo.timestamp,
+          isTracking: true
+        });
+      } else {
+        // إرسال آخر موقع معروف من Firestore
+        const busDoc = await db.collection('buses').doc(busId).get();
+        if (busDoc.exists) {
+          const busData = busDoc.data();
+          socket.emit('bus:currentLocation', {
+            busId,
+            busNumber: busData.busNumber,
+            location: busData.lastLocation || null,
+            isTracking: false,
+            message: 'الباص غير نشط حالياً'
+          });
+        }
+      }
+      
+      socket.emit('parent:subscribed', {
+        success: true,
+        busId,
+        message: 'تم الاشتراك في تتبع الباص'
+      });
+      
+    } catch (error) {
+      console.error(`❌ خطأ في الاشتراك:`, error.message);
+      socket.emit('error', { message: error.message });
+    }
+  });
+  
+  // ====================================
+  // 🔕 ولي الأمر: إلغاء الاشتراك
+  // ====================================
+  socket.on('parent:unsubscribeFromBus', (data) => {
+    try {
+      const { busId } = data;
+      
+      console.log(`\n🔕 ولي أمر يلغي اشتراكه من الباص: ${busId}`);
+      
+      const subscription = parentSubscriptions.get(socket.id);
+      if (subscription) {
+        subscription.busIds.delete(busId);
+        if (subscription.busIds.size === 0) {
+          parentSubscriptions.delete(socket.id);
+        }
+      }
+      
+      socket.leave(`bus:${busId}:parents`);
+      
+      console.log(`✅ تم إلغاء الاشتراك`);
+      
+      socket.emit('parent:unsubscribed', {
+        success: true,
+        busId
+      });
+      
+    } catch (error) {
+      console.error(`❌ خطأ في إلغاء الاشتراك:`, error.message);
+    }
+  });
+  
+  // ====================================
+  // 📊 طلب قائمة الباصات النشطة
+  // ====================================
+  socket.on('getActiveBuses', () => {
+    const buses = [];
+    activeBuses.forEach((busInfo) => {
+      buses.push({
+        busId: busInfo.busId,
+        busNumber: busInfo.busNumber,
+        location: busInfo.location,
+        studentsCount: busInfo.students.length,
+        isTracking: busInfo.isTracking,
+        timestamp: busInfo.timestamp
+      });
+    });
+    
+    socket.emit('activeBuses', buses);
+    console.log(`📊 تم إرسال قائمة ${buses.length} باص نشط`);
+  });
+  
+  // ====================================
+  // 🔌 قطع الاتصال
+  // ====================================
+  socket.on('disconnect', async () => {
+    console.log(`\n❌ عميل قطع الاتصال: ${socket.id}`);
+    
+    // التحقق إذا كان سوبرفايزر
+    let disconnectedBus = null;
+    activeBuses.forEach((busInfo, busId) => {
+      if (busInfo.socketId === socket.id) {
+        disconnectedBus = { busId, busInfo };
+      }
+    });
+    
+    if (disconnectedBus) {
+      const { busId, busInfo } = disconnectedBus;
+      console.log(`⚠️ سوبرفايزر انقطع - إيقاف تتبع الباص: ${busId}`);
+      
+      // تحديث Firestore
+      await db.collection('buses').doc(busId).update({
+        isTracking: false,
+        disconnectedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      // حذف من الباصات النشطة
+      activeBuses.delete(busId);
+      
+      // إشعار أولياء الأمور
+      io.to(`bus:${busId}:parents`).emit('bus:trackingStopped', {
+        busId,
+        busNumber: busInfo.busNumber,
+        reason: 'supervisor_disconnected',
+        timestamp: Date.now()
+      });
+    }
+    
+    // حذف اشتراكات ولي الأمر
+    parentSubscriptions.delete(socket.id);
+    
+    console.log(`📊 الاتصالات النشطة: ${io.engine.clientsCount}`);
+    console.log(`📊 الباصات النشطة: ${activeBuses.size}\n`);
+  });
+});
+
+// Start Express + Socket.IO server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`\n🎉 ===========================================`);
+  console.log(`🌐 API Server running on port ${PORT}`);
+  console.log(`🔌 Socket.IO Server ready`);
+  console.log(`📍 Endpoints:`);
+  console.log(`   POST http://localhost:${PORT}/api/logout`);
+  console.log(`   POST http://localhost:${PORT}/api/updateToken`);
+  console.log(`   GET  http://localhost:${PORT}/health`);
+  console.log(`🔌 Socket.IO:`);
+  console.log(`   ws://localhost:${PORT}`);
+  console.log(`===========================================\n`);
+});
 
 // عداد للإشعارات المرسلة
 let notificationsSent = 0;

@@ -1287,6 +1287,62 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
             children: [
               Expanded(
                 child: _buildQuickActionButton(
+                  icon: Icons.map_outlined,
+                  label: 'تتبع الباص مباشر',
+                  color: const Color(0xFF4CAF50),
+                  onTap: () {
+                    if (_students.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('لا يوجد طلاب مسجلين'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    context.push('/parent/bus-tracking');
+                  },
+                ),
+              ),
+              SizedBox(
+                  width:
+                      ResponsiveHelper.getSpacing(context) * 0.75),
+              Expanded(
+                child: _buildQuickActionButton(
+                  icon: Icons.location_on,
+                  label: 'موقع الطالب',
+                  color: const Color(0xFF00BCD4),
+                  onTap: () {
+                    if (_students.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('لا يوجد طلاب مسجلين'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    // If only one student, go directly
+                    if (_students.length == 1) {
+                      final student = _students.first;
+                      final busId = student.busId ?? '';
+                      context.push('/parent/student-location/${student.id}?busId=${Uri.encodeComponent(busId)}');
+                    } else {
+                      // Show dialog to choose student
+                      _showStudentSelectionDialog();
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          SizedBox(
+              height:
+                  ResponsiveHelper.getSpacing(context) * 0.75),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickActionButton(
                   icon: Icons.person_off_outlined,
                   label: 'إبلاغ غياب',
                   color: const Color(0xFFFF8C00),
@@ -2191,6 +2247,48 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
     context.push('/parent/add-student').then((_) {
       setState(() {});
     });
+  }
+
+  void _showStudentSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.location_on, color: Color(0xFF00BCD4)),
+            SizedBox(width: 8),
+            Text('اختر الطالب'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _students.map((student) {
+            return ListTile(
+              leading: StudentAvatar(
+                photoUrl: student.photoUrl,
+                studentName: student.name,
+                radius: 20,
+                backgroundColor: const Color(0xFF00BCD4).withAlpha(25),
+                textColor: const Color(0xFF00BCD4),
+              ),
+              title: Text(student.name),
+              subtitle: Text('الصف: ${student.grade}'),
+              onTap: () {
+                Navigator.pop(context);
+                final busId = student.busId ?? '';
+                context.push('/parent/student-location/${student.id}?busId=${Uri.encodeComponent(busId)}');
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showTripHistoryDialog() {

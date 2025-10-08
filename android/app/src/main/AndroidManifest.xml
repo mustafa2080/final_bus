@@ -44,6 +44,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!-- Location permissions -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <application
         android:label="كيدز باص"
         android:name="com.example.mybus.MainApplication"
@@ -88,6 +92,8 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+
 
         <!-- Custom FCM Service -->
         <service

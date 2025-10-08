@@ -29,6 +29,8 @@ import '../screens/parent/parent_settings_screen.dart';
 import '../screens/parent/trip_history_screen.dart';
 import '../screens/parent/evaluate_supervisor_screen.dart';
 import '../screens/parent/complete_profile_screen.dart';
+import '../screens/parent/bus_tracking_screen.dart';
+import '../screens/parent/student_location_tracking_screen.dart';
 import '../screens/supervisor/qr_scanner_screen.dart';
 import '../screens/supervisor/students_list_screen.dart';
 import '../screens/supervisor/supervisor_profile_screen.dart';
@@ -305,6 +307,22 @@ class AppRoutes {
             path: 'trip-history',
             name: 'trip-history',
             builder: (context, state) => const TripHistoryScreen(),
+          ),
+          GoRoute(
+            path: 'bus-tracking',
+            name: 'bus-tracking',
+            builder: (context, state) => const BusTrackingScreen(),
+          ),
+          GoRoute(
+            path: 'student-location/:studentId',
+            name: 'student-location-tracking',
+            builder: (context, state) {
+              final studentId = state.pathParameters['studentId']!;
+              return StudentLocationTrackingScreen(
+                studentId: studentId,
+                busId: state.uri.queryParameters['busId'] ?? '',
+              );
+            },
           ),
         ],
       ),

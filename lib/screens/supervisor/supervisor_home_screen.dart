@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +15,7 @@ import '../../models/supervisor_assignment_model.dart';
 import '../../models/user_model.dart';
 import '../../models/notification_model.dart';
 import 'package:location/location.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../widgets/curved_app_bar.dart';
 import '../../widgets/animated_background.dart';
 import '../../widgets/responsive_widgets.dart';
@@ -20,6 +23,11 @@ import '../../widgets/supervisor_bottom_navigation.dart';
 import 'school_info_screen.dart';
 import 'absence_management_screen.dart';
 import 'monthly_behavior_survey_screen.dart';
+
+// Extension helper for double formatting
+extension DoubleExtensions on double {
+  String toFixed(int decimals) => toStringAsFixed(decimals);
+}
 
 class SupervisorHomeScreen extends StatefulWidget {
   const SupervisorHomeScreen({super.key});
@@ -39,6 +47,14 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   late Stream<List<StudentModel>> _studentsOnBusStream;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  
+  // 🔌 Socket.IO للتتبع المباشر
+  IO.Socket? _socket;
+  bool _isTracking = false;
+  bool _isSocketConnected = false;
+  String? _currentBusId;
+  int _locationUpdatesCount = 0;
+  Timer? _connectionCheckTimer;
 
   @override
   void initState() {
@@ -73,7 +89,8 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     if (!serviceEnabled) {
       serviceEnabled = await _locationService.requestService();
       if (!serviceEnabled) {
-        return; // Services are not enabled, handle this case.
+        debugPrint('⚠️ خدمات الموقع غير مفعلة');
+        return;
       }
     }
 
@@ -81,12 +98,321 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     if (permissionGranted == PermissionStatus.denied) {
       permissionGranted = await _locationService.requestPermission();
       if (permissionGranted != PermissionStatus.granted) {
-        return; // Permissions are not granted, handle this case.
+        debugPrint('⚠️ صلاحيات الموقع غير ممنوحة');
+        return;
       }
     }
+    
+    // ✅ تهيئة Socket.IO
+    await _initSocketConnection();
 
+    // ✅ الاستماع لتغييرات الموقع
     _locationService.onLocationChanged.listen((LocationData currentLocation) {
       _updateStudentsLocation(currentLocation);
+      
+      // ✅ إرسال الموقع عبر Socket.IO إذا كان التتبع نشط
+      if (_isTracking && _socket != null && _socket!.connected) {
+        _sendLocationUpdate(currentLocation);
+      }
+    });
+    
+    debugPrint('✅ خدمة الموقع مُهيأة بنجاح');
+  }
+  
+  // 🔌 تهيئة اتصال Socket.IO
+  Future<void> _initSocketConnection() async {
+    try {
+      debugPrint('\n🔌 =======================================');
+      debugPrint('🔌 تهيئة اتصال Socket.IO...');
+      debugPrint('=======================================\n');
+      
+      // 🌐 تحديد عنوان الخادم بناءً على المنصة
+      String serverUrl;
+      
+      // في الويب: استخدم localhost أو عنوان خادمك
+      if (kIsWeb) {
+        // في الـ Production، استبدل هذا بعنوان الخادم الحقيقي
+        serverUrl = 'http://localhost:3000';
+        debugPrint('🌐 منصة الويب: استخدام $serverUrl');
+      } else {
+        // في الموبايل: استخدم IP الكمبيوتر
+        // ⚠️ للحصول على IP:
+        //   - Windows: افتح CMD واكتب ipconfig، ابحث عن IPv4 Address
+        //   - Mac/Linux: افتح Terminal واكتب ifconfig | grep inet
+        serverUrl = 'http://192.168.2.2:3000'; // ⚠️ غيّر هذا الـ IP لـ IP جهازك!
+        debugPrint('📱 منصة الموبايل: استخدام $serverUrl');
+      }
+      
+      _socket = IO.io(
+        serverUrl,
+        IO.OptionBuilder()
+            .setTransports(['websocket'])
+            .enableAutoConnect()
+            .enableReconnection()
+            .setReconnectionDelay(1000)
+            .setReconnectionAttempts(999)
+            .build(),
+      );
+
+      // 🟢 عند الاتصال
+      _socket!.onConnect((_) {
+        debugPrint('✅ Socket.IO متصل بنجاح!');
+        setState(() {
+          _isSocketConnected = true;
+        });
+        
+        // إذا كان التتبع نشط، أعد بدء التتبع
+        if (_isTracking && _currentBusId != null) {
+          _startTracking();
+        }
+      });
+
+      // 🔴 عند قطع الاتصال
+      _socket!.onDisconnect((_) {
+        debugPrint('❌ Socket.IO انقطع الاتصال');
+        setState(() {
+          _isSocketConnected = false;
+        });
+      });
+      
+      // ⚠️ عند حدوث خطأ
+      _socket!.onError((error) {
+        debugPrint('❌ Socket.IO خطأ: $error');
+      });
+      
+      // ✅ تأكيد بدء التتبع
+      _socket!.on('supervisor:trackingStarted', (data) {
+        debugPrint('✅ تم بدء التتبع: $data');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ تم بدء التتبع المباشر'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      });
+      
+      // ✅ تأكيد إيقاف التتبع
+      _socket!.on('supervisor:trackingStopped', (data) {
+        debugPrint('✅ تم إيقاف التتبع: $data');
+        if (mounted) {
+          setState(() {
+            _isTracking = false;
+          });
+        }
+      });
+      
+      // ⚠️ استقبال الأخطاء
+      _socket!.on('error', (error) {
+        debugPrint('❌ خطأ من الخادم: $error');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('خطأ: ${error['message'] ?? 'حدث خطأ غير متوقع'}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      });
+      
+      // بدء مراقبة الاتصال
+      _connectionCheckTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+        if (_socket != null && mounted) {
+          final isConnected = _socket!.connected;
+          if (_isSocketConnected != isConnected) {
+            setState(() {
+              _isSocketConnected = isConnected;
+            });
+          }
+        }
+      });
+      
+      debugPrint('✅ Socket.IO مُهيأ بنجاح');
+      
+    } catch (e) {
+      debugPrint('❌ خطأ في تهيئة Socket.IO: $e');
+    }
+  }
+  
+  // 🚀 بدء التتبع
+  Future<void> _startTracking() async {
+    try {
+      // الحصول على busId من assignment
+      final supervisorId = _authService.currentUser?.uid ?? '';
+      if (supervisorId.isEmpty) {
+        debugPrint('❌ معرف المشرف غير موجود');
+        return;
+      }
+      
+      final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
+      if (assignments.isEmpty) {
+        debugPrint('❌ لا يوجد assignment للمشرف');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ لا يوجد باص مُخصص لك'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      
+      final assignment = assignments.first;
+      _currentBusId = assignment.busId;
+      
+      if (_currentBusId == null || _currentBusId!.isEmpty) {
+        debugPrint('❌ معرف الباص غير موجود');
+        return;
+      }
+      
+      // الحصول على الموقع الحالي
+      final location = await _locationService.getLocation();
+      if (location.latitude == null || location.longitude == null) {
+        debugPrint('❌ لم نتمكن من الحصول على الموقع');
+        return;
+      }
+      
+      debugPrint('\n🚀 =======================================');
+      debugPrint('🚀 بدء التتبع المباشر');
+      debugPrint('🆔 Bus ID: $_currentBusId');
+      debugPrint('👤 Supervisor ID: $supervisorId');
+      debugPrint('📍 الموقع: [${location.latitude}, ${location.longitude}]');
+      debugPrint('=======================================\n');
+      
+      // التحقق من اتصال Socket.IO
+      if (_socket == null || !_socket!.connected) {
+        debugPrint('⚠️ Socket.IO غير متصل، محاولة إعادة الاتصال...');
+        await _initSocketConnection();
+        
+        // انتظر قليلاً للاتصال
+        await Future.delayed(const Duration(seconds: 2));
+        
+        if (_socket == null || !_socket!.connected) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ فشل الاتصال بالخادم، يُرجى المحاولة مرة أخرى'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+      }
+      
+      // إرسال حدث بدء التتبع
+      _socket!.emit('supervisor:startTracking', {
+        'busId': _currentBusId,
+        'supervisorId': supervisorId,
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+      });
+      
+      setState(() {
+        _isTracking = true;
+        _locationUpdatesCount = 0;
+      });
+      
+      // تحديث Firestore
+      await FirebaseFirestore.instance
+          .collection('buses')
+          .doc(_currentBusId)
+          .update({
+        'isTracking': true,
+        'trackingStartedAt': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('✅ تم بدء التتبع بنجاح!');
+      
+    } catch (e) {
+      debugPrint('❌ خطأ في بدء التتبع: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+  
+  // 🛑 إيقاف التتبع
+  Future<void> _stopTracking() async {
+    if (!_isTracking || _currentBusId == null) return;
+    
+    try {
+      debugPrint('\n🛑 =======================================');
+      debugPrint('🛑 إيقاف التتبع المباشر');
+      debugPrint('=======================================\n');
+      
+      // إرسال حدث إيقاف التتبع
+      if (_socket != null && _socket!.connected) {
+        _socket!.emit('supervisor:stopTracking', {
+          'busId': _currentBusId,
+        });
+      }
+      
+      setState(() {
+        _isTracking = false;
+      });
+      
+      // تحديث Firestore
+      await FirebaseFirestore.instance
+          .collection('buses')
+          .doc(_currentBusId)
+          .update({
+        'isTracking': false,
+        'trackingStoppedAt': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('✅ تم إيقاف التتبع بنجاح!');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ تم إيقاف التتبع المباشر'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      debugPrint('❌ خطأ في إيقاف التتبع: $e');
+    }
+  }
+  
+  // 📍 إرسال تحديث الموقع
+  void _sendLocationUpdate(LocationData location) {
+    if (_socket == null || 
+        !_socket!.connected || 
+        !_isTracking || 
+        _currentBusId == null ||
+        location.latitude == null ||
+        location.longitude == null) {
+      return;
+    }
+    
+    _locationUpdatesCount++;
+    
+    // طباعة كل 10 تحديثات فقط لتجنب الازدحام في اللوج
+    if (_locationUpdatesCount % 10 == 0) {
+      debugPrint('📍 إرسال تحديث موقع #$_locationUpdatesCount');
+      debugPrint('   الموقع: [${location.latitude!.toFixed(6)}, ${location.longitude!.toFixed(6)}]');
+      debugPrint('   السرعة: ${location.speed?.toStringAsFixed(1) ?? '0'} m/s');
+    }
+    
+    _socket!.emit('supervisor:updateLocation', {
+      'busId': _currentBusId,
+      'latitude': location.latitude,
+      'longitude': location.longitude,
+      'speed': (location.speed ?? 0) * 3.6, // تحويل من m/s إلى km/h
+      'heading': location.heading ?? 0,
     });
   }
 
@@ -115,6 +441,9 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   @override
   void dispose() {
     _pulseController.dispose();
+    _stopTracking();
+    _connectionCheckTimer?.cancel();
+    _socket?.dispose();
     super.dispose();
   }
 
@@ -269,6 +598,307 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   }
 
 
+
+  // Helper extension for double.toFixed
+  
+  // 📍 بناء قسم التتبع المباشر
+  Widget _buildLiveTrackingSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _isTracking ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+            _isTracking ? Colors.green.withOpacity(0.05) : Colors.blue.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _isTracking ? Colors.green.withOpacity(0.3) : Colors.blue.withOpacity(0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _isTracking ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _isTracking ? Colors.green : Colors.blue,
+                      _isTracking ? Colors.green[700]! : Colors.blue[700]!,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _isTracking ? Colors.green.withOpacity(0.3) : Colors.blue.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  _isTracking ? Icons.gps_fixed : Icons.gps_not_fixed,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'التتبع المباشر',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _isSocketConnected ? Colors.green : Colors.red,
+                            boxShadow: [
+                              BoxShadow(
+                                color: (_isSocketConnected ? Colors.green : Colors.red).withOpacity(0.5),
+                                blurRadius: 6,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _isSocketConnected ? 'متصل بالخادم' : 'غير متصل',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Status Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _isTracking ? Colors.green : Colors.grey[300],
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: _isTracking
+                      ? [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isTracking ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isTracking ? 'نشط' : 'متوقف',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Stats Row
+          if (_isTracking) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.update,
+                          color: Colors.blue[700],
+                          size: 24,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$_locationUpdatesCount',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        Text(
+                          'تحديثات الموقع',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 50,
+                    color: Colors.grey[300],
+                  ),
+                  Expanded(
+                    child: StreamBuilder<List<StudentModel>>(
+                      stream: _studentsOnBusStream,
+                      builder: (context, snapshot) {
+                        final onBusCount = snapshot.data?.where((s) => s.currentStatus == StudentStatus.onBus).length ?? 0;
+                        return Column(
+                          children: [
+                            Icon(
+                              Icons.people,
+                              color: Colors.green[700],
+                              size: 24,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '$onBusCount',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green[700],
+                              ),
+                            ),
+                            Text(
+                              'طلاب في الباص',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Control Button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: _isSocketConnected
+                  ? (_isTracking ? _stopTracking : _startTracking)
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isTracking ? Colors.red : Colors.green,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey[300],
+                elevation: _isTracking ? 4 : 2,
+                shadowColor: _isTracking ? Colors.red.withOpacity(0.5) : Colors.green.withOpacity(0.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isTracking ? Icons.stop_circle : Icons.play_circle,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    _isTracking ? 'إيقاف التتبع' : 'بدء التتبع',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Warning if not connected
+          if (!_isSocketConnected) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange[700],
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'غير متصل بالخادم. جارٍ إعادة المحاولة...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -452,6 +1082,10 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
 
             // Quick Stats
             _buildQuickStats(),
+            SizedBox(height: ResponsiveHelper.getSpacing(context) * 1.5),
+
+            // Live Tracking Section
+            _buildLiveTrackingSection(),
             SizedBox(height: ResponsiveHelper.getSpacing(context) * 1.5),
 
             // Main Action Buttons
