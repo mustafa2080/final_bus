@@ -12,8 +12,9 @@ const server = http.createServer(app);
 // إعداد Socket.IO مع CORS
 const io = new Server(server, {
   cors: {
-    origin: '*', // في Production غيّرها للدومين الحقيقي
-    methods: ['GET', 'POST']
+    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 

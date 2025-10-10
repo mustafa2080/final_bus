@@ -1,0 +1,12 @@
+# Railway Ignore File
+# Files and directories to exclude from Railway deployment
+
+node_modules/
+.git/
+.env
+serviceAccountKey.json
+*.log
+.DS_Store
+test-results/
+*.md
+.bat

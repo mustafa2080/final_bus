@@ -1,176 +1,186 @@
-# 🚀 MyBus Notification Backend
+# MyBus Backend Server 🚌
 
-Backend service للتعامل مع الإشعارات في تطبيق MyBus بشكل تلقائي.
+Backend server for MyBus tracking system with real-time notifications and Socket.IO support.
 
-## ✨ المميزات
+## Features 🌟
 
-- ✅ **إشعارات فورية** عند ركوب/نزول الطالب
-- ✅ **إشعارات تلقائية** عند بداية/نهاية الرحلة
-- ✅ **تنبيهات** لطلبات الغياب والشكاوى
-- ✅ **مراقبة مستمرة** لقاعدة البيانات
-- ✅ **حفظ الإشعارات** في Firestore
+- ✅ Firebase Admin SDK integration
+- ✅ Real-time bus tracking with Socket.IO
+- ✅ FCM push notifications
+- ✅ REST API endpoints
+- ✅ Firestore listeners for automatic notifications
+- ✅ CORS support
 
-## 📋 المتطلبات
+## Prerequisites 📋
 
-- Node.js v18 أو أحدث
-- حساب Firebase مع Service Account
-- FCM Tokens للمستخدمين في قاعدة البيانات
+- Node.js 14+ 
+- Firebase Project
+- Service Account Key from Firebase
 
-## 🛠️ التثبيت
+## Local Development 🔧
 
-### 1️⃣ تثبيت Dependencies
+### 1. Install Dependencies
 
 ```bash
-cd backend
 npm install
 ```
 
-### 2️⃣ الحصول على Service Account Key
+### 2. Setup Environment Variables
 
-1. افتح Firebase Console: https://console.firebase.google.com/project/mybus-5a992/settings/serviceaccounts/adminsdk
-2. اضغط على **Generate New Private Key**
-3. احفظ الملف باسم `serviceAccountKey.json` في مجلد `backend`
+Create a `.env` file:
 
-### 3️⃣ تشغيل السيرفر محلياً
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and add:
+
+```env
+FIREBASE_DATABASE_URL=https://mybus-5a992.firebaseio.com
+PORT=3000
+ALLOWED_ORIGINS=*
+```
+
+### 3. Add Service Account Key
+
+Get your `serviceAccountKey.json` from:
+- Firebase Console → Project Settings → Service Accounts → Generate New Private Key
+
+Place the file in the `backend` folder.
+
+### 4. Run Development Server
+
+```bash
+npm run dev
+```
+
+Or production mode:
 
 ```bash
 npm start
 ```
 
-أو للتطوير:
-```bash
-npm run dev
-```
+## Deployment to Railway 🚀
 
-## 🚀 النشر على Railway
+### Method 1: GitHub (Recommended)
 
-### الطريقة 1: من GitHub (موصى بها)
+1. **Push to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Backend ready for Railway"
+   git push origin main
+   ```
 
-1. **رفع الكود على GitHub:**
-```bash
-cd backend
-git init
-git add .
-git commit -m "Initial backend setup"
-git branch -M main
-git remote add origin YOUR_GITHUB_REPO_URL
-git push -u origin main
-```
+2. **Connect Railway:**
+   - Go to [railway.app](https://railway.app)
+   - Click "New Project" → "Deploy from GitHub"
+   - Select your repo and `backend` folder
 
-2. **إنشاء مشروع على Railway:**
-   - اذهب إلى: https://railway.app
-   - سجل دخول بحساب GitHub
-   - اضغط **New Project** → **Deploy from GitHub repo**
-   - اختر الريبو بتاعك
-   - Railway هيكتشف `package.json` تلقائياً
+3. **Add Environment Variables in Railway:**
+   ```
+   FIREBASE_DATABASE_URL=https://mybus-5a992.firebaseio.com
+   PORT=${{PORT}}
+   ALLOWED_ORIGINS=https://your-frontend-url.com
+   SERVICE_ACCOUNT_KEY=<paste entire serviceAccountKey.json content here>
+   ```
 
-3. **إضافة المتغيرات:**
-   - في Dashboard → Variables
-   - أضف `FIREBASE_DATABASE_URL`
-   - أضف محتوى `serviceAccountKey.json` كمتغير
-
-### الطريقة 2: من CLI
+### Method 2: Railway CLI
 
 ```bash
+# Install Railway CLI
 npm i -g @railway/cli
+
+# Login
 railway login
+
+# Initialize and deploy
+cd backend
 railway init
 railway up
+
+# Add environment variables
+railway variables set FIREBASE_DATABASE_URL="https://mybus-5a992.firebaseio.com"
+railway variables set SERVICE_ACCOUNT_KEY="<paste content>"
 ```
 
-## 🌐 نشر على خدمات أخرى
+## Environment Variables 🔐
 
-### Render.com
-1. اذهب إلى: https://render.com
-2. New → Web Service
-3. Connect Repository
-4. Environment: Node
-5. Build Command: `npm install`
-6. Start Command: `npm start`
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `FIREBASE_DATABASE_URL` | Firebase Realtime Database URL | ✅ Yes |
+| `PORT` | Server port (auto-assigned in Railway) | ✅ Yes |
+| `SERVICE_ACCOUNT_KEY` | Firebase service account JSON (as string) | ✅ Yes (Production) |
+| `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | ⚠️ Recommended |
 
-### Heroku
-```bash
-heroku create mybus-notifications
-git push heroku main
+## API Endpoints 📡
+
+### Health Check
+```
+GET /health
 ```
 
-## 📊 مراقبة السيرفر
-
-السيرفر يطبع logs في Console:
+### Logout (Delete FCM Token)
 ```
-🚀 MyBus Notification Service Started!
-📡 Listening to Firestore changes...
-
-🆕 رحلة جديدة: trip_12345
-   الطالب: أحمد محمد
-   الإجراء: boardBusToSchool
-   ✅ إشعار مرسل لولي الأمر: ...
-   ✅ الإشعار محفوظ في Firestore
-
-💚 Service is running... 05/10/2025, 10:30:00
+POST /api/logout
+Body: { "userId": "user123" }
 ```
 
-## 🔧 التخصيص
-
-### إضافة إشعار جديد
-
-في `index.js`، أضف listener جديد:
-
-```javascript
-const newCollectionRef = db.collection('your_collection');
-newCollectionRef.onSnapshot(async (snapshot) => {
-  // Your logic here
-});
+### Update FCM Token
 ```
-
-### تعديل نص الإشعارات
-
-عدّل في القسم:
-```javascript
-switch (trip.action) {
-  case 'boardBusToSchool':
-    notificationTitle = 'عنوان مخصص';
-    // ...
+POST /api/updateToken
+Body: { 
+  "userId": "user123",
+  "fcmToken": "fcm_token_here"
 }
 ```
 
-## 📱 إعداد التطبيق (Flutter)
+## Socket.IO Events 🔌
 
-تأكد من:
-1. ✅ المستخدمين عندهم `fcmToken` في Firestore
-2. ✅ Firebase Messaging مفعّل في التطبيق
-3. ✅ Notification Channel معمول صح
+### Supervisor Events
+- `supervisor:startTracking` - Start bus tracking
+- `supervisor:updateLocation` - Update bus location
+- `supervisor:stopTracking` - Stop bus tracking
 
-## 🐛 Troubleshooting
+### Parent Events
+- `parent:subscribeToBus` - Subscribe to bus tracking
+- `parent:unsubscribeFromBus` - Unsubscribe from bus
+- `bus:locationUpdate` - Receive location updates
+- `bus:trackingStarted` - Bus tracking started
+- `bus:trackingStopped` - Bus tracking stopped
 
-### الإشعارات مش واصلة؟
-- تأكد من `fcmToken` موجود في `users` collection
-- تأكد من الـ Token محدّث
-- شوف الـ Logs في السيرفر
+## Firestore Listeners 👀
 
-### خطأ في التوصيل بـ Firestore؟
-- تأكد من `serviceAccountKey.json` موجود
-- تأكد من الـ permissions صح
-- شوف Firebase Console → Service Accounts
+The server automatically listens to:
+1. **fcm_queue** - Send FCM notifications
+2. **trips** - Student trip updates
+3. **absences** - Absence requests
+4. **complaints** - Parent complaints
+5. **students** - Student data updates
 
-### السيرفر بيتوقف؟
-- على Railway: تأكد من الـ plan (Free plan بيتوقف بعد فترة)
-- استخدم Keep-alive service: https://uptimerobot.com
+## Security Notes 🔒
 
-## 💰 التكلفة
+- ⚠️ **NEVER** commit `serviceAccountKey.json` to Git
+- ⚠️ Use `.gitignore` to exclude sensitive files
+- ⚠️ Use environment variables for production
+- ⚠️ Configure CORS properly for production
 
-- **Railway Free Plan:** 
-  - 500 ساعة شهرياً مجاناً
-  - $5 بعد كده
-  
-- **Render Free Plan:**
-  - مجاني تماماً
-  - السيرفر بينام بعد 15 دقيقة خمول
+## Troubleshooting 🔍
 
-## 📞 الدعم
+### Common Issues
 
-لو عندك مشكلة، افتح Issue على GitHub!
+**1. Firebase Admin SDK Error**
+- Check `SERVICE_ACCOUNT_KEY` is valid JSON
+- Verify Firebase project permissions
 
----
+**2. Port Already in Use**
+- Change `PORT` in `.env`
+- Kill existing process: `kill -9 $(lsof -ti:3000)`
 
-Made with ❤️ for MyBus School Transportation System
+**3. FCM Notifications Not Sending**
+- Verify FCM tokens are valid
+- Check Firestore Rules allow read/write
+- Ensure service account has FCM permissions
+
+## License 📄
+
+Private project - All rights reserved
