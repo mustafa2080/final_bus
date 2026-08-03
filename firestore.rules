@@ -1,0 +1,142 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for user roles
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserData().userType == 'admin';
+    }
+
+    function isSupervisor() {
+      return isAuthenticated() && getUserData().userType == 'supervisor';
+    }
+
+    function isParent() {
+      return isAuthenticated() && getUserData().userType == 'parent';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isStudentParent(studentData) {
+      // Check if the current user is the parent of this student
+      return isAuthenticated() && request.auth.uid == studentData.parentId;
+    }
+
+    function isValidData(requiredFields) {
+      return request.resource.data.keys().hasAll(requiredFields);
+    }
+
+    // Users collection - بيانات المستخدمين
+    match /users/{userId} {
+      // المستخدم يمكنه قراءة بياناته فقط، الأدمن يمكنه قراءة الكل
+      allow read: if isOwner(userId) || isAdmin();
+      // المستخدم يمكنه تحديث بياناته فقط، الأدمن يمكنه تحديث الكل
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Students collection - بيانات الطلاب
+    match /students/{studentId} {
+      // الأدمن والمشرف يمكنهم قراءة وكتابة بيانات جميع الطلاب
+      allow read, write: if isAdmin() || isSupervisor();
+      // ولي الأمر يمكنه قراءة بيانات أطفاله فقط
+      allow read: if isParent() && isStudentParent(resource.data);
+      // ولي الأمر يمكنه تحديث بعض البيانات لأطفاله (مثل الصورة)
+      allow update: if isParent() && isStudentParent(resource.data);
+    }
+
+    // Buses collection - بيانات الحافلات
+    match /buses/{busId} {
+      // الأدمن يمكنه قراءة وكتابة جميع بيانات الحافلات
+      allow read, write: if isAdmin();
+      // المشرف يمكنه قراءة بيانات الحافلة المخصصة له
+      allow read: if isSupervisor();
+      // ولي الأمر يمكنه قراءة بيانات حافلة طفله
+      allow read: if isParent();
+    }
+
+    // Trips collection - بيانات الرحلات
+    match /trips/{tripId} {
+      // الأدمن والمشرف يمكنهم إدارة الرحلات
+      allow read, write: if isAdmin() || isSupervisor();
+      // ولي الأمر يمكنه قراءة رحلات أطفاله
+      allow read: if isParent();
+    }
+
+    // Supervisor assignments - تعيينات المشرفين
+    match /supervisor_assignments/{assignmentId} {
+      // الأدمن فقط يمكنه إدارة تعيينات المشرفين
+      allow read, write: if isAdmin();
+      // المشرف يمكنه قراءة تعييناته
+      allow read: if isSupervisor();
+    }
+
+    // Complaints collection - الشكاوى
+    match /complaints/{complaintId} {
+      // الأدمن يمكنه قراءة جميع الشكاوى
+      allow read, write: if isAdmin();
+      // ولي الأمر يمكنه إنشاء شكوى وقراءة شكاواه
+      allow create: if isParent() && isOwner(request.resource.data.parentId);
+      allow read: if isParent() && isOwner(resource.data.parentId);
+    }
+
+    // Surveys collection - الاستبيانات
+    match /surveys/{surveyId} {
+      // الأدمن يمكنه إدارة الاستبيانات
+      allow read, write: if isAdmin();
+      // المشرف وولي الأمر يمكنهم قراءة الاستبيانات المخصصة لهم
+      allow read: if isAuthenticated();
+    }
+
+    // Notifications collection - الإشعارات
+    match /notifications/{notificationId} {
+      // الأدمن يمكنه إدارة جميع الإشعارات
+      allow read, write: if isAdmin();
+      // المستخدم يمكنه قراءة إشعاراته فقط
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(resource.data.recipientId));
+      // المستخدم يمكنه تحديث حالة القراءة لإشعاراته
+      allow update: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(resource.data.recipientId));
+    }
+
+    // Absence requests - طلبات الغياب
+    match /absences/{absenceId} {
+      // الأدمن والمشرف يمكنهم إدارة طلبات الغياب
+      allow read, write: if isAdmin() || isSupervisor();
+      // ولي الأمر يمكنه إنشاء طلب غياب وقراءة طلباته
+      allow create: if isParent() && isOwner(request.resource.data.parentId);
+      allow read: if isParent() && isOwner(resource.data.parentId);
+    }
+
+    // Settings collection - إعدادات النظام
+    match /settings/{settingId} {
+      // الأدمن يمكنه إدارة جميع الإعدادات
+      allow read, write: if isAdmin();
+      // جميع المستخدمين يمكنهم قراءة الإعدادات العامة
+      allow read: if isAuthenticated();
+    }
+
+    // Survey responses - إجابات الاستبيانات
+    match /survey_responses/{responseId} {
+      // الأدمن يمكنه قراءة جميع الإجابات
+      allow read, write: if isAdmin();
+      // المستخدم يمكنه إنشاء وقراءة إجاباته فقط
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Default rule - منع الوصول لأي مجموعة غير محددة
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+  }
+}
