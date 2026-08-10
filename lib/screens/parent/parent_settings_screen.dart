@@ -9,6 +9,7 @@ import '../../widgets/custom_text_field.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/curved_app_bar.dart';
 import '../../utils/responsive_helper.dart';
+import 'help_screen.dart';
 
 class ParentSettingsScreen extends StatefulWidget {
   const ParentSettingsScreen({super.key});
@@ -860,104 +861,9 @@ class _ParentSettingsScreenState extends State<ParentSettingsScreen> {
 
   // Help and Support Methods
   Future<void> _showHelpAndSupport() async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('المساعدة والدعم'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '📞 معلومات الاتصال:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    SizedBox(height: 8),
-                    Text('• الهاتف: 123-456-7890'),
-                    Text('• البريد الإلكتروني: support@mybus.com'),
-                    Text('• واتساب: +966-50-123-4567'),
-                    Text('• ساعات العمل: 8 ص - 6 م (السبت - الخميس)'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '❓ الأسئلة الشائعة:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    SizedBox(height: 8),
-                    Text('• كيفية متابعة نشاط طفلي؟'),
-                    Text('• كيفية تسجيل غياب طفلي؟'),
-                    Text('• كيفية تحديث بيانات الطفل؟'),
-                    Text('• كيفية التواصل مع المدرسة؟'),
-                    Text('• حل مشاكل الإشعارات؟'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '🚨 الدعم الطارئ:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    SizedBox(height: 8),
-                    Text('• للمشاكل العاجلة: 911'),
-                    Text('• دعم تقني فوري: 800-123-4567'),
-                    Text('• متاح 24/7 للحالات الطارئة'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('يمكنك الاتصال بنا في أي وقت للحصول على المساعدة'),
-                  backgroundColor: Colors.blue,
-                ),
-              );
-            },
-            child: const Text('اتصل بنا'),
-          ),
-        ],
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const HelpScreen()),
     );
   }
 

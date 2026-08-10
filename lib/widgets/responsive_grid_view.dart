@@ -186,11 +186,34 @@ class ResponsiveRow extends StatelessWidget {
     final isMobile = ResponsiveHelper.isMobile(context);
     
     if (isMobile || forceColumn) {
+      // لو الأب بيدي ارتفاع غير محدود (مثلاً جوه SingleChildScrollView)،
+      // أي Expanded جوه Column هيفشل في الـ layout بخطأ
+      // "RenderFlex children have non-zero flex but incoming height
+      // constraints are unbounded". بنلف أي Expanded بـ Flexible(loose)
+      // عشان يتقلص لحجمه الطبيعي بدل ما يحاول ياخد مساحة لانهائية.
+      final safeChildren = children.map((child) {
+        if (child is Expanded) {
+          return Flexible(
+            flex: child.flex,
+            child: child.child,
+          );
+        }
+        // Flexible(fit: FlexFit.tight) بيتصرف زي Expanded بالظبط
+        // (بياخد مساحة لانهائية)، فلازم نلفه بـ loose برضو نفس السبب.
+        if (child is Flexible && child.fit == FlexFit.tight) {
+          return Flexible(
+            flex: child.flex,
+            child: child.child,
+          );
+        }
+        return child;
+      }).toList();
+
       return Column(
         mainAxisAlignment: mainAxisAlignment,
         crossAxisAlignment: crossAxisAlignment,
-        mainAxisSize: mainAxisSize,
-        children: children,
+        mainAxisSize: MainAxisSize.min,
+        children: safeChildren,
       );
     }
 

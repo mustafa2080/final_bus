@@ -5,7 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
-import '../../services/enhanced_notification_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/simple_fcm_service.dart';
 import '../../models/bus_model.dart';
 import '../../widgets/admin_bottom_navigation.dart';
 import '../../utils/responsive_helper.dart';
@@ -70,7 +71,6 @@ class BusesManagementScreen extends StatefulWidget {
 
 class _BusesManagementScreenState extends State<BusesManagementScreen> with SingleTickerProviderStateMixin {
   final DatabaseService _databaseService = DatabaseService();
-  final EnhancedNotificationService _notificationService = EnhancedNotificationService();
   String _searchQuery = '';
   BusSortingOption _currentSortOption = BusSortingOption.plateNumber;
   bool _isAscending = true;
@@ -385,6 +385,11 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
       return _isAscending ? comparison : -comparison;
     });
     return buses;
+  }
+
+  bool _isValidEgyptianPhone(String phone) {
+    final normalized = phone.replaceAll(RegExp(r'[\s\-]'), '');
+    return RegExp(r'^01[0125][0-9]{8}$').hasMatch(normalized);
   }
 
   int _compareStringsNaturally(String a, String b) {
@@ -1125,7 +1130,57 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
       return;
     }
 
+    if (capacity <= 0) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'سعة السيارة يجب أن تكون رقماً أكبر من صفر',
+              style: GoogleFonts.cairo(fontSize: 14 * MediaQuery.of(context).textScaleFactor),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (driverPhone.trim().isNotEmpty && !_isValidEgyptianPhone(driverPhone.trim())) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'رقم هاتف السائق غير صحيح (مثال: 01012345678)',
+              style: GoogleFonts.cairo(fontSize: 14 * MediaQuery.of(context).textScaleFactor),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
+      // التحقق من عدم تكرار رقم اللوحة
+      final existingBuses = await _databaseService.getAllBuses().first;
+      final normalizedPlate = plateNumber.trim().toLowerCase();
+      final duplicate = existingBuses.any((b) =>
+          b.plateNumber.trim().toLowerCase() == normalizedPlate &&
+          b.id != busId);
+      if (duplicate) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'يوجد بالفعل سيارة مسجلة بنفس رقم اللوحة',
+                style: GoogleFonts.cairo(fontSize: 14 * MediaQuery.of(context).textScaleFactor),
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
       if (isEditing && busId != null) {
         final existingBus = await _databaseService.getBus(busId);
         if (existingBus != null) {
@@ -1420,7 +1475,7 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
           .get();
       final adminName = adminDoc.data()?['name'] ?? 'الإدارة';
 
-      await _notificationService.notifyBusActivation(
+      await NotificationService().notifyBusActivation(
         busId: bus.id,
         busPlateNumber: bus.plateNumber,
         driverName: bus.driverName,
@@ -1443,7 +1498,7 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
           .get();
       final adminName = adminDoc.data()?['name'] ?? 'الإدارة';
 
-      await _notificationService.notifyBusDeactivation(
+      await NotificationService().notifyBusDeactivation(
         busId: bus.id,
         busPlateNumber: bus.plateNumber,
         driverName: bus.driverName,
@@ -1732,17 +1787,18 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
       for (final assignment in assignmentsSnapshot.docs) {
         final supervisorId = assignment.data()['supervisorId'];
         if (supervisorId != null) {
-          await _notificationService.sendNotificationToUser(
+          await SimpleFCMService().sendNotificationToUser(
             userId: supervisorId,
             title: 'تم حذف السيارة ${bus.plateNumber}',
             body: 'تم حذف السيارة التي كنت مكلف بها من قبل $adminName. يرجى مراجعة الإدارة.',
-            type: 'bus_deleted',
             data: {
+              'type': 'bus_deleted',
               'busId': bus.id,
               'busPlateNumber': bus.plateNumber,
-              'adminId': currentUser?.uid,
-              'studentsAffected': studentsCount,
+              'adminId': currentUser?.uid ?? '',
+              'studentsAffected': studentsCount.toString(),
             },
+            channelId: 'bus_notifications',
           );
         }
       }
@@ -1759,17 +1815,18 @@ class _BusesManagementScreenState extends State<BusesManagementScreen> with Sing
           final studentName = studentData['name'];
 
           if (parentId != null && parentId.isNotEmpty) {
-            await _notificationService.sendNotificationToUser(
+            await SimpleFCMService().sendNotificationToUser(
               userId: parentId,
               title: 'تم حذف سيارة النقل',
               body: 'تم حذف السيارة ${bus.plateNumber} التي كان يستخدمها $studentName. سيتم إعادة تسكين الطالب قريباً.',
-              type: 'bus_deleted',
               data: {
+                'type': 'bus_deleted',
                 'busId': bus.id,
                 'busPlateNumber': bus.plateNumber,
                 'studentId': studentDoc.id,
-                'studentName': studentName,
+                'studentName': studentName ?? '',
               },
+              channelId: 'bus_notifications',
             );
           }
         }

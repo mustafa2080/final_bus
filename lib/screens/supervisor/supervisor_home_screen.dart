@@ -55,12 +55,19 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   String? _currentBusId;
   int _locationUpdatesCount = 0;
   Timer? _connectionCheckTimer;
+  Timer? _systemUpdateDebounce;
+
+  // 🚌 عنوان خط السير - يتم تحميله مرة واحدة بدل FutureBuilder متداخل في الـ AppBar
+  // (كان بيتسبب في layout thrashing و semantics assertion error بسبب إعادة
+  // التنفيذ في كل build مع الـ pulse animation)
+  String _routeSubtitle = 'إدارة رحلات الطلاب';
 
   @override
   void initState() {
     super.initState();
     _initializeStreams();
     _listenToSystemUpdates();
+    _loadRouteSubtitle();
 
     // تهيئة animation للنبضة
     _pulseController = AnimationController(
@@ -79,6 +86,31 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     _pulseController.repeat(reverse: true);
 
     _initLocationTracking();
+  }
+
+  /// تحميل عنوان خط السير مرة واحدة (بدل FutureBuilder متداخل في كل build)
+  Future<void> _loadRouteSubtitle() async {
+    try {
+      final supervisorId = _authService.currentUser?.uid ?? '';
+      final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
+      if (assignments.isEmpty) return;
+
+      final assignment = assignments.first;
+      String route = assignment.busRoute;
+
+      final bus = await _databaseService.getBusById(assignment.busId);
+      if (bus != null && bus.route.isNotEmpty) {
+        route = bus.route;
+      }
+
+      if (mounted && route.isNotEmpty) {
+        setState(() {
+          _routeSubtitle = 'خط السير: $route';
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ خطأ في تحميل عنوان خط السير: $e');
+    }
   }
 
   Future<void> _initLocationTracking() async {
@@ -443,6 +475,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     _pulseController.dispose();
     _stopTracking();
     _connectionCheckTimer?.cancel();
+    _systemUpdateDebounce?.cancel();
     _socket?.dispose();
     super.dispose();
   }
@@ -452,8 +485,22 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     debugPrint('🔄 Initializing streams for supervisor: $supervisorId');
 
     // استخدام الطريقة المحسنة لجلب الطلاب
-    _studentsOnBusStream = Stream.periodic(const Duration(seconds: 3))
+    // ملاحظة: لو المشرف لسه معندوش أي تسكين (assignment) على باص، بنوقف
+    // الـ polling بعد أول محاولة فاضية بدل ما نكرر نفس الاستعلام الفاشل
+    // كل بضع ثواني للأبد - ده كان بيسبب rebuild storm مستمر ويصطدم
+    // مع عمليات الـ layout (semantics assertion errors).
+    int emptyAttempts = 0;
+    _studentsOnBusStream = Stream.periodic(const Duration(seconds: 15))
         .asyncMap((_) => _loadSupervisorStudents(supervisorId))
+        .takeWhile((students) {
+          if (students.isEmpty) {
+            emptyAttempts++;
+            // بعد أول محاولة فاضية، نوقف التكرار نهائيًا
+            return emptyAttempts <= 1;
+          }
+          emptyAttempts = 0;
+          return true;
+        })
         .distinct((previous, next) =>
             previous.length == next.length &&
             previous.map((s) => s.id).join(',') == next.map((s) => s.id).join(','))
@@ -583,15 +630,21 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
 
   void _listenToSystemUpdates() {
     // Listen to system updates to refresh data when needed
+    // (مع debounce لمنع تكرار setState/_initializeStreams بشكل متلاحق
+    //  كان بيسبب rebuild storm و semantics assertion errors)
     FirebaseFirestore.instance
         .collection('system_updates')
         .doc('last_student_update')
         .snapshots()
         .listen((snapshot) {
       if (snapshot.exists && mounted) {
-        debugPrint('🔄 System update detected, refreshing streams...');
-        setState(() {
-          _initializeStreams();
+        _systemUpdateDebounce?.cancel();
+        _systemUpdateDebounce = Timer(const Duration(milliseconds: 800), () {
+          if (!mounted) return;
+          debugPrint('🔄 System update detected, refreshing streams...');
+          setState(() {
+            _initializeStreams();
+          });
         });
       }
     });
@@ -907,27 +960,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
       appBar: EnhancedCurvedAppBar(
         title: 'كيدز باص - المشرف',
         automaticallyImplyLeading: false, // إزالة سهم الرجوع
-        subtitle: FutureBuilder<List<SupervisorAssignmentModel>>(
-          future: _databaseService.getSupervisorAssignmentsSimple(_authService.currentUser?.uid ?? ''),
-          builder: (context, snapshot) {
-            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-              final assignment = snapshot.data!.first;
-              // الحصول على اسم المنطقة من الباص
-              return FutureBuilder<BusModel?>(
-                future: _databaseService.getBusById(assignment.busId),
-                builder: (context, busSnapshot) {
-                  if (busSnapshot.hasData && busSnapshot.data != null) {
-                    final bus = busSnapshot.data!;
-                    return Text('خط السير: ${bus.route}');
-                  }
-                  // في حالة عدم توفر بيانات الباص، عرض رقم الخط كما هو
-                  return Text('خط السير: ${assignment.busRoute}');
-                },
-              );
-            }
-            return const Text('إدارة رحلات الطلاب');
-          },
-        ),
+        subtitle: Text(_routeSubtitle),
         backgroundColor: const Color(0xFF1E88E5),
         foregroundColor: Colors.white,
         height: 240,
@@ -936,9 +969,6 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
           StreamBuilder<int>(
             stream: _databaseService.getSupervisorNotificationsCount(_authService.currentUser?.uid ?? ''),
             builder: (context, snapshot) {
-              // Add debug information
-              debugPrint('🔔 Supervisor Notification StreamBuilder - Connection: ${snapshot.connectionState}, Data: ${snapshot.data}, Error: ${snapshot.error}');
-
               final notificationCount = snapshot.data ?? 0;
               final hasNotifications = notificationCount > 0;
 
@@ -969,46 +999,49 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                       Positioned(
                         right: 4,
                         top: 4,
-                        child: AnimatedBuilder(
-                          animation: _pulseAnimation,
-                          builder: (context, child) {
-                            return Transform.scale(
-                              scale: _pulseAnimation.value,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.red,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.white, width: 2),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.red.withOpacity(0.4),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                    BoxShadow(
-                                      color: Colors.red.withOpacity(0.2),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                constraints: const BoxConstraints(
-                                  minWidth: 20,
-                                  minHeight: 20,
-                                ),
-                                child: Text(
-                                  notificationCount > 99 ? '99+' : notificationCount.toString(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
+                        child: RepaintBoundary(
+                          child: AnimatedBuilder(
+                            animation: _pulseAnimation,
+                            builder: (context, child) {
+                              return Transform.scale(
+                                scale: _pulseAnimation.value,
+                                child: child,
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.red.withOpacity(0.4),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
                                   ),
-                                  textAlign: TextAlign.center,
-                                ),
+                                  BoxShadow(
+                                    color: Colors.red.withOpacity(0.2),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
-                            );
-                          },
+                              constraints: const BoxConstraints(
+                                minWidth: 20,
+                                minHeight: 20,
+                              ),
+                              child: Text(
+                                notificationCount > 99 ? '99+' : notificationCount.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                   ],
@@ -2304,7 +2337,8 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
         const SizedBox(height: 12),
         ResponsiveRow(
           children: [
-            Expanded(
+            Flexible(
+              fit: FlexFit.tight,
               child: _buildActionCard(
                 'إدارة الغياب',
                 'متابعة طلبات الغياب',
@@ -2314,7 +2348,8 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
               ),
             ),
             SizedBox(width: ResponsiveHelper.getSpacing(context)),
-            Expanded(
+            Flexible(
+              fit: FlexFit.tight,
               child: _buildActionCard(
                 'الاتصال الطارئ',
                 'معلومات الاتصال',

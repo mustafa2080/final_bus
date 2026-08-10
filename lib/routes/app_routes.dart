@@ -22,10 +22,12 @@ import '../screens/parent/parent_profile_screen.dart';
 import '../screens/parent/report_absence_screen.dart';
 import '../screens/parent/supervisor_info_screen.dart';
 import '../screens/parent/add_student_screen.dart' as ParentAddStudent;
+import '../screens/parent/link_student_screen.dart';
 import '../screens/parent/surveys_screen.dart';
 import '../screens/parent/take_survey_screen.dart';
 import '../screens/parent/supervisor_evaluation_screen.dart';
 import '../screens/parent/parent_settings_screen.dart';
+import '../screens/parent/help_screen.dart';
 import '../screens/parent/trip_history_screen.dart';
 import '../screens/parent/evaluate_supervisor_screen.dart';
 import '../screens/parent/complete_profile_screen.dart';
@@ -283,6 +285,11 @@ class AppRoutes {
             builder: (context, state) => const ParentAddStudent.AddStudentScreen(),
           ),
           GoRoute(
+            path: 'link-student',
+            name: 'parent-link-student',
+            builder: (context, state) => const LinkStudentScreen(),
+          ),
+          GoRoute(
             path: 'surveys',
             name: 'parent-surveys',
             builder: (context, state) => const SurveysScreen(),
@@ -306,6 +313,11 @@ class AppRoutes {
             path: 'settings',
             name: 'parent-settings',
             builder: (context, state) => const ParentSettingsScreen(),
+          ),
+          GoRoute(
+            path: 'help',
+            name: 'parent-help',
+            builder: (context, state) => const HelpScreen(),
           ),
           GoRoute(
             path: 'trip-history',

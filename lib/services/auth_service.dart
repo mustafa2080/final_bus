@@ -3,8 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
-import 'unified_notification_service.dart';
-// تم حذف الخدمات المتكررة واستبدالها بالخدمة الموحدة
+import 'notification_service.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -314,7 +313,7 @@ class AuthService extends ChangeNotifier {
             });
             
             // إرسال إشعار ترحيبي واحد فقط
-            await UnifiedNotificationService().sendWelcomeNotification(name);
+            await NotificationService().sendWelcomeNotification(result.user!.uid, name);
             
             debugPrint('✅ تم إرسال إشعار ترحيبي لولي الأمر الجديد: $name');
           } catch (e) {

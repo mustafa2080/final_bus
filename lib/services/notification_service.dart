@@ -1,5 +1,6 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/notification_model.dart';
@@ -10,6 +11,25 @@ class NotificationService {
   final SimpleFCMService _fcmService = SimpleFCMService();
   
   bool _isInitialized = false;
+
+  /// إشعار ترحيبي لولي أمر جديد عند التسجيل
+  Future<void> sendWelcomeNotification(String userId, String userName) async {
+    try {
+      await _fcmService.sendNotificationToUser(
+        userId: userId,
+        title: 'مرحباً بك في كيدز باص',
+        body: 'أهلاً وسهلاً $userName، تم إنشاء حسابك بنجاح',
+        data: {
+          'type': 'welcome',
+          'userName': userName,
+        },
+        channelId: 'mybus_notifications',
+      );
+      debugPrint('✅ Welcome notification sent to $userName');
+    } catch (e) {
+      debugPrint('❌ Error sending welcome notification: $e');
+    }
+  }
 
   /// تهيئة الخدمة
   Future<void> initialize() async {
@@ -26,6 +46,203 @@ class NotificationService {
   void dispose() {
     _isInitialized = false;
     debugPrint('🗑️ NotificationService disposed');
+  }
+
+  /// إشعار تحديث بيانات الطالب لولي الأمر والمشرف (باستثناء الإدمن الذي حدّث)
+  Future<void> notifyStudentDataUpdate({
+    required String studentId,
+    required String studentName,
+    required String parentId,
+    required String busId,
+    required Map<String, dynamic> updatedFields,
+    required String adminName,
+    String? adminId,
+  }) async {
+    try {
+      final updatedFieldsText = _formatUpdatedFields(updatedFields);
+      final title = '✏️ تحديث بيانات الطالب';
+      final body = 'تم تحديث بيانات الطالب $studentName من قبل الإدارة ($adminName)\n$updatedFieldsText';
+
+      // إشعار ولي الأمر (باستثناء لو هو نفسه من قام بالتحديث)
+      if (parentId.isNotEmpty && parentId != adminId) {
+        await _fcmService.sendNotificationToUser(
+          userId: parentId,
+          title: title,
+          body: body,
+          data: {
+            'type': 'student_data_update',
+            'studentId': studentId,
+            'studentName': studentName,
+            'updatedFields': jsonEncode(updatedFields),
+          },
+          channelId: 'student_notifications',
+        );
+
+        await _saveNotification(
+          title: title,
+          body: body,
+          type: NotificationType.general,
+          recipientId: parentId,
+          studentName: studentName,
+        );
+      }
+
+      // إشعار مشرف الباص (إن وجد وليس نفس الإدمن)
+      if (busId.isNotEmpty) {
+        try {
+          final busDoc = await _firestore.collection('buses').doc(busId).get();
+          final supervisorId = busDoc.data()?['supervisorId'] as String?;
+          if (supervisorId != null && supervisorId.isNotEmpty && supervisorId != adminId) {
+            await _fcmService.sendNotificationToUser(
+              userId: supervisorId,
+              title: title,
+              body: body,
+              data: {
+                'type': 'student_data_update',
+                'studentId': studentId,
+                'studentName': studentName,
+                'busId': busId,
+                'updatedFields': jsonEncode(updatedFields),
+              },
+              channelId: 'student_notifications',
+            );
+          }
+        } catch (e) {
+          debugPrint('❌ Error fetching bus supervisor for update notification: $e');
+        }
+      }
+
+      debugPrint('✅ Student data update notification sent');
+    } catch (e) {
+      debugPrint('❌ Error sending student data update notification: $e');
+    }
+  }
+
+  /// إشعار تفعيل الحافلة (للمشرف المعين)
+  Future<void> notifyBusActivation({
+    required String busId,
+    required String busPlateNumber,
+    required String driverName,
+    required String adminName,
+    String? adminId,
+  }) async {
+    try {
+      final supervisorId = await _getActiveSupervisorForBus(busId);
+      if (supervisorId != null && supervisorId.isNotEmpty && supervisorId != adminId) {
+        await _fcmService.sendNotificationToUser(
+          userId: supervisorId,
+          title: '🚌 تم تفعيل الحافلة',
+          body: 'تم تفعيل الحافلة $busPlateNumber\nالسائق: $driverName\nيمكنك الآن بدء الرحلات',
+          data: {
+            'type': 'bus_activated',
+            'busId': busId,
+            'busPlateNumber': busPlateNumber,
+            'driverName': driverName,
+          },
+          channelId: 'bus_notifications',
+        );
+      }
+      debugPrint('✅ Bus activation notification sent for: $busPlateNumber');
+    } catch (e) {
+      debugPrint('❌ Error sending bus activation notification: $e');
+    }
+  }
+
+  /// إشعار إيقاف الحافلة (للمشرف وأولياء أمور الطلاب المسكنين)
+  Future<void> notifyBusDeactivation({
+    required String busId,
+    required String busPlateNumber,
+    required String driverName,
+    required String adminName,
+    String? adminId,
+  }) async {
+    try {
+      final supervisorId = await _getActiveSupervisorForBus(busId);
+      if (supervisorId != null && supervisorId.isNotEmpty && supervisorId != adminId) {
+        await _fcmService.sendNotificationToUser(
+          userId: supervisorId,
+          title: '⚠️ تم إيقاف الحافلة',
+          body: 'تم إيقاف الحافلة $busPlateNumber (السائق: $driverName) من قبل $adminName\n\nيرجى التوقف عن العمليات والرحلات',
+          data: {
+            'type': 'bus_deactivated',
+            'busId': busId,
+            'busPlateNumber': busPlateNumber,
+            'driverName': driverName,
+            'deactivatedBy': adminName,
+          },
+          channelId: 'bus_notifications',
+        );
+      }
+
+      final studentsSnapshot = await _firestore
+          .collection('students')
+          .where('busId', isEqualTo: busId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      for (final studentDoc in studentsSnapshot.docs) {
+        final studentData = studentDoc.data();
+        final parentId = studentData['parentId'] as String?;
+        final studentName = studentData['name'] ?? 'الطالب';
+
+        if (parentId != null && parentId.isNotEmpty && parentId != adminId) {
+          await _fcmService.sendNotificationToUser(
+            userId: parentId,
+            title: '⚠️ تم إيقاف حافلة طفلك',
+            body: 'تم إيقاف الحافلة $busPlateNumber الخاصة بـ $studentName مؤقتاً\n\nيرجى ترتيب وسيلة نقل بديلة',
+            data: {
+              'type': 'bus_deactivated',
+              'busId': busId,
+              'busPlateNumber': busPlateNumber,
+              'studentName': studentName,
+              'deactivatedBy': adminName,
+            },
+            channelId: 'bus_notifications',
+          );
+        }
+      }
+
+      debugPrint('✅ Bus deactivation notifications sent for: $busPlateNumber');
+    } catch (e) {
+      debugPrint('❌ Error sending bus deactivation notification: $e');
+    }
+  }
+
+  /// جلب معرف المشرف النشط المعين على الحافلة
+  Future<String?> _getActiveSupervisorForBus(String busId) async {
+    try {
+      final busDoc = await _firestore.collection('buses').doc(busId).get();
+      final supervisorId = busDoc.data()?['supervisorId'] as String?;
+      if (supervisorId != null && supervisorId.isNotEmpty) return supervisorId;
+
+      // fallback: البحث في تعيينات المشرفين النشطة إن وجدت
+      final assignmentQuery = await _firestore
+          .collection('supervisor_assignments')
+          .where('busId', isEqualTo: busId)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+      if (assignmentQuery.docs.isNotEmpty) {
+        return assignmentQuery.docs.first.data()['supervisorId'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error getting active supervisor for bus: $e');
+      return null;
+    }
+  }
+
+  /// تنسيق الحقول المُحدّثة كنص عربي مقروء
+  String _formatUpdatedFields(Map<String, dynamic> updatedFields) {
+    final buffer = StringBuffer();
+    updatedFields.forEach((key, value) {
+      if (value is Map && value.containsKey('old') && value.containsKey('new')) {
+        buffer.writeln('$key: ${value['old']} ← ${value['new']}');
+      } else {
+        buffer.writeln('$key: $value');
+      }
+    });
+    return buffer.toString().trim();
   }
 
   /// إشعار بالموافقة على طلب الغياب مع الصوت
@@ -627,7 +844,7 @@ class NotificationService {
     }
   }
 
-  // Stub methods (للتوافق مع الاستدعاءات الموجودة)
+  /// إشعار بإلغاء تسكين طالب من الباص (لولي الأمر + الإدارة)
   Future<void> notifyStudentUnassignmentWithSound({
     required String studentId,
     required String studentName,
@@ -637,9 +854,54 @@ class NotificationService {
     String? excludeAdminId,
     String? adminId,
   }) async {
-    debugPrint('📢 notifyStudentUnassignmentWithSound called');
+    try {
+      final title = '🚫 تم إلغاء تسكين $studentName';
+      final body = 'تم إلغاء تسكين الطالب $studentName من الباص';
+
+      await _fcmService.sendNotificationToUser(
+        userId: parentId,
+        title: title,
+        body: body,
+        data: {
+          'type': 'student_unassigned',
+          'studentId': studentId,
+          'studentName': studentName,
+          if (busId != null) 'busId': busId,
+        },
+        channelId: 'student_notifications',
+      );
+
+      await _saveNotification(
+        title: title,
+        body: body,
+        type: NotificationType.general,
+        recipientId: parentId,
+        studentName: studentName,
+      );
+
+      // إشعار الإدارة (باستثناء من قام بالإلغاء إن وجد)
+      await _fcmService.sendNotificationToUserTypeExcluding(
+        userType: 'admin',
+        excludeUserId: excludeAdminId ?? adminId,
+        title: title,
+        body: body,
+        data: {
+          'type': 'student_unassigned',
+          'studentId': studentId,
+          'studentName': studentName,
+          'parentId': parentId,
+          if (busId != null) 'busId': busId,
+        },
+        channelId: 'student_notifications',
+      );
+
+      debugPrint('✅ Student unassignment notification sent');
+    } catch (e) {
+      debugPrint('❌ Error sending student unassignment notification: $e');
+    }
   }
 
+  /// إشعار شكوى جديدة للإدارة (مع حفظ محلي)
   Future<void> notifyNewComplaintWithSound({
     required String complaintId,
     required String parentId,
@@ -649,9 +911,32 @@ class NotificationService {
     String? subject,
     String? category,
   }) async {
-    debugPrint('📢 notifyNewComplaintWithSound called');
+    try {
+      final notifTitle = '📝 شكوى جديدة${parentName != null ? ' من $parentName' : ''}';
+      final body = '${subject ?? title}\n$description';
+
+      await _fcmService.sendNotificationToUserType(
+        userType: 'admin',
+        title: notifTitle,
+        body: body,
+        data: {
+          'type': 'new_complaint',
+          'complaintId': complaintId,
+          'parentId': parentId,
+          'title': title,
+          if (subject != null) 'subject': subject,
+          if (category != null) 'category': category,
+        },
+        channelId: 'mybus_notifications',
+      );
+
+      debugPrint('✅ New complaint notification sent to admins');
+    } catch (e) {
+      debugPrint('❌ Error sending new complaint notification: $e');
+    }
   }
 
+  /// إشعار طوارئ لجميع المستخدمين المستهدفين (بما فيهم أولياء الأمور/المشرفين/الإدارة)
   Future<void> notifyEmergencyWithSound({
     required String title,
     required String message,
@@ -660,9 +945,44 @@ class NotificationService {
     String? supervisorId,
     List<String>? parentIds,
   }) async {
-    debugPrint('📢 notifyEmergencyWithSound called');
+    try {
+      final ids = <String>{...targetUserIds, ...?parentIds}.toList();
+      final emergencyTitle = '🚨 $title';
+
+      if (ids.isNotEmpty) {
+        await _fcmService.sendNotificationToUsers(
+          userIds: ids,
+          title: emergencyTitle,
+          body: message,
+          data: {
+            'type': 'emergency',
+            if (busId != null) 'busId': busId,
+            if (supervisorId != null) 'supervisorId': supervisorId,
+          },
+          channelId: 'emergency_notifications',
+        );
+      }
+
+      // نضمن وصول تنبيه الطوارئ للإدارة دائماً
+      await _fcmService.sendNotificationToUserType(
+        userType: 'admin',
+        title: emergencyTitle,
+        body: message,
+        data: {
+          'type': 'emergency',
+          if (busId != null) 'busId': busId,
+          if (supervisorId != null) 'supervisorId': supervisorId,
+        },
+        channelId: 'emergency_notifications',
+      );
+
+      debugPrint('✅ Emergency notification sent to ${ids.length} users + admins');
+    } catch (e) {
+      debugPrint('❌ Error sending emergency notification: $e');
+    }
   }
 
+  /// إشعار تحديث حالة الرحلة (بدء/انتهاء/تأخير) للمستخدمين المتأثرين
   Future<void> notifyTripStatusUpdateWithSound({
     required String tripId,
     required String status,
@@ -671,9 +991,35 @@ class NotificationService {
     String? busId,
     String? busRoute,
   }) async {
-    debugPrint('📢 notifyTripStatusUpdateWithSound called');
+    try {
+      final statusText = _getTripStatusText(status);
+      final title = '🚌 تحديث حالة الرحلة';
+      final body = 'الباص رقم $busNumber${busRoute != null ? ' - خط $busRoute' : ''}: $statusText';
+
+      if (affectedUsers.isNotEmpty) {
+        await _fcmService.sendNotificationToUsers(
+          userIds: affectedUsers,
+          title: title,
+          body: body,
+          data: {
+            'type': 'trip_status_update',
+            'tripId': tripId,
+            'status': status,
+            'busNumber': busNumber,
+            if (busId != null) 'busId': busId,
+            if (busRoute != null) 'busRoute': busRoute,
+          },
+          channelId: 'bus_notifications',
+        );
+      }
+
+      debugPrint('✅ Trip status update notification sent to ${affectedUsers.length} users');
+    } catch (e) {
+      debugPrint('❌ Error sending trip status update notification: $e');
+    }
   }
 
+  /// إشعار الإدارة بتقييم جديد لمشرف
   Future<void> notifySupervisorEvaluationWithSound({
     required String supervisorId,
     required String parentName,
@@ -684,9 +1030,34 @@ class NotificationService {
     String? studentName,
     double? averageRating,
   }) async {
-    debugPrint('📢 notifySupervisorEvaluationWithSound called');
+    try {
+      final title = '⭐ تقييم جديد للمشرف${supervisorName != null ? ' $supervisorName' : ''}';
+      final body = 'قيّم ولي الأمر $parentName المشرف بتقييم $rating/5'
+          '${comment != null && comment.isNotEmpty ? '\nتعليق: $comment' : ''}';
+
+      await _fcmService.sendNotificationToUserType(
+        userType: 'admin',
+        title: title,
+        body: body,
+        data: {
+          'type': 'supervisor_evaluation',
+          'supervisorId': supervisorId,
+          'rating': rating.toString(),
+          if (supervisorName != null) 'supervisorName': supervisorName,
+          if (parentId != null) 'parentId': parentId,
+          if (studentName != null) 'studentName': studentName,
+          if (averageRating != null) 'averageRating': averageRating.toString(),
+        },
+        channelId: 'mybus_notifications',
+      );
+
+      debugPrint('✅ Supervisor evaluation notification sent to admins');
+    } catch (e) {
+      debugPrint('❌ Error sending supervisor evaluation notification: $e');
+    }
   }
 
+  /// إشعار بدء الرحلة لأولياء الأمور المتأثرين
   Future<void> sendTripStartedNotification({
     required String tripId,
     required String busNumber,
@@ -696,7 +1067,48 @@ class NotificationService {
     String? busRoute,
     DateTime? timestamp,
   }) async {
-    debugPrint('📢 sendTripStartedNotification called');
+    try {
+      final title = '🚌 بدأت الرحلة';
+      final body = 'بدأت رحلة الباص رقم $busNumber${busRoute != null ? ' - خط $busRoute' : ''}';
+
+      final ids = <String>{...affectedUsers, if (recipientId != null) recipientId}.toList();
+      if (ids.isNotEmpty) {
+        await _fcmService.sendNotificationToUsers(
+          userIds: ids,
+          title: title,
+          body: body,
+          data: {
+            'type': 'trip_started',
+            'tripId': tripId,
+            'busNumber': busNumber,
+            if (busRoute != null) 'busRoute': busRoute,
+            if (studentName != null) 'studentName': studentName,
+          },
+          channelId: 'bus_notifications',
+        );
+      }
+
+      debugPrint('✅ Trip started notification sent to ${ids.length} users');
+    } catch (e) {
+      debugPrint('❌ Error sending trip started notification: $e');
+    }
+  }
+
+  /// نص حالة الرحلة بالعربي
+  String _getTripStatusText(String status) {
+    switch (status.toLowerCase()) {
+      case 'started':
+        return 'بدأت الرحلة';
+      case 'completed':
+      case 'ended':
+        return 'انتهت الرحلة';
+      case 'delayed':
+        return 'تأخرت الرحلة';
+      case 'cancelled':
+        return 'ألغيت الرحلة';
+      default:
+        return status;
+    }
   }
 
   /// حفظ إشعار في قاعدة البيانات

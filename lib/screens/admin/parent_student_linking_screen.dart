@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/database_service.dart';
 import '../../services/parent_student_link_service.dart';
+import '../../services/notification_sender_service.dart';
 import '../../models/student_model.dart';
 import '../../models/user_model.dart';
 import '../../models/parent_student_link_model.dart';
@@ -19,6 +20,7 @@ class ParentStudentLinkingScreen extends StatefulWidget {
 class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final ParentStudentLinkService _linkService = ParentStudentLinkService();
+  final NotificationSenderService _notificationSenderService = NotificationSenderService();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
@@ -449,10 +451,12 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
       await _linkService.linkStudentToParent(student.id, parent.id);
 
       // إرسال إشعار لولي الأمر
-      await _databaseService.sendNotificationToParent(
-        parent.id,
-        'تم ربط طفل جديد',
-        'تم ربط الطالب ${student.name} بحسابك بنجاح',
+      await _notificationSenderService.sendNotificationToParent(
+        parentId: parent.id,
+        title: 'تم ربط طفل جديد',
+        message: 'تم ربط الطالب ${student.name} بحسابك بنجاح',
+        studentName: student.name,
+        studentId: student.id,
       );
 
       if (mounted) {
@@ -595,10 +599,10 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
       await _linkService.linkMultipleStudentsToParent(_selectedStudentIds.toList(), parent.id);
 
       // إرسال إشعار لولي الأمر
-      await _databaseService.sendNotificationToParent(
-        parent.id,
-        'تم ربط أطفال جدد',
-        'تم ربط $studentCount طالب بحسابك بنجاح',
+      await _notificationSenderService.sendNotificationToParent(
+        parentId: parent.id,
+        title: 'تم ربط أطفال جدد',
+        message: 'تم ربط $studentCount طالب بحسابك بنجاح',
       );
 
       // مسح قائمة الطلاب المحددين

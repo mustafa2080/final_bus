@@ -336,10 +336,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider<AuthService>(create: (_) => AuthService()),
+        ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
         Provider<DatabaseService>(create: (_) => DatabaseService()),
         Provider<SimpleFCMService>(create: (_) => SimpleFCMService()),
-        Provider<ThemeService>(create: (_) => _themeService),
+        ChangeNotifierProvider<ThemeService>(create: (_) => _themeService),
         ChangeNotifierProvider<PersistentAuthService>(create: (_) => PersistentAuthService()),
       ],
       child: Consumer<ThemeService>(

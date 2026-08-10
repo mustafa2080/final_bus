@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/notification_model.dart';
-import '../../utils/notification_test_helper.dart';
 
 class ParentNotificationsScreen extends StatefulWidget {
   const ParentNotificationsScreen({super.key});
@@ -59,18 +58,6 @@ class _ParentNotificationsScreenState extends State<ParentNotificationsScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          // زر إصلاح الإشعارات (للتطوير فقط)
-          IconButton(
-            icon: const Icon(Icons.build),
-            onPressed: _fixNotifications,
-            tooltip: 'إصلاح الإشعارات',
-          ),
-          // زر اختبار الإشعارات (للتطوير فقط)
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () => NotificationTestHelper.showQuickTestMenu(context),
-            tooltip: 'اختبار الإشعارات',
-          ),
           StreamBuilder<int>(
             stream: _databaseService.getParentNotificationsCount(_authService.currentUser?.uid ?? ''),
             builder: (context, snapshot) {
@@ -786,38 +773,6 @@ class _ParentNotificationsScreenState extends State<ParentNotificationsScreen> {
         );
       },
     );
-  }
-
-  Future<void> _fixNotifications() async {
-    try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('جاري إصلاح الإشعارات...'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-
-      await _databaseService.fixExistingNotifications();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم إصلاح الإشعارات بنجاح'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error fixing notifications: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('خطأ في إصلاح الإشعارات'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _markAsRead(NotificationModel notification) async {

@@ -97,10 +97,12 @@ class _LoginScreenState extends State<LoginScreen>
           SizedBox(height: _getSpacing(8, isMobile, isTablet, isDesktop)),
           Text(
             'ℹ️ هذه الأزرار ظاهرة في وضع التطوير فقط',
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.yellow.shade200,
               fontSize: fontSize - 2,
               fontFamily: 'Tajawal',
+              height: 1.3,
             ),
           ),
         ],
@@ -275,9 +277,11 @@ class _LoginScreenState extends State<LoginScreen>
           children: [
             Icon(Icons.error, color: Colors.red[400]),
             const SizedBox(width: 8),
-            const Text(
-              'خطأ في تسجيل الدخول',
-              style: TextStyle(fontFamily: 'Tajawal'),
+            const Flexible(
+              child: Text(
+                'خطأ في تسجيل الدخول',
+                style: TextStyle(fontFamily: 'Tajawal'),
+              ),
             ),
           ],
         ),
@@ -325,10 +329,9 @@ class _LoginScreenState extends State<LoginScreen>
                           bottom: MediaQuery.of(context).viewInsets.bottom * 0.5,
                         ),
                         child: Center(
-                          child: IntrinsicHeight(
-                            child: Form(
-                              key: _formKey,
-                              child: Column(
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
                                 children: [
                                   SizedBox(height: _getSpacing(40, isMobile, isTablet, isDesktop)),
                                   ScaleTransition(
@@ -359,7 +362,6 @@ class _LoginScreenState extends State<LoginScreen>
                                     _buildQuickTestButtons(isMobile, isTablet, isDesktop),
                                 ],
                               ),
-                            ),
                           ),
                         ),
                       ),
@@ -508,11 +510,8 @@ class _LoginScreenState extends State<LoginScreen>
             if (value == null || value.isEmpty) {
               return 'يرجى إدخال كلمة المرور';
             }
-            if (value.length < 8) {
-              return 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
-            }
-            if (!RegExp(r'^(?=.*[a-zA-Z])(?=.*\d)').hasMatch(value)) {
-              return 'كلمة المرور يجب أن تحتوي على أحرف وأرقام';
+            if (value.length < 6) {
+              return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
             }
             return null;
           },
@@ -572,6 +571,8 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
                 Text(
                   'سيتم حفظ تسجيل دخولك للمرة القادمة',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.7),
                     fontSize: fontSize - 2,

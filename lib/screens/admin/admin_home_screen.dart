@@ -9,7 +9,9 @@ import '../../models/user_model.dart';
 import '../../widgets/admin_bottom_navigation.dart';
 import '../../widgets/admin_app_bar.dart';
 import '../../widgets/responsive_widgets.dart';
-import '../../utils/notification_test_helper.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/simple_fcm_service.dart';
+import '../../services/notification_service.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -174,7 +176,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   Future<void> _runQuickTest() async {
     try {
-      await NotificationTestHelper.quickTest();
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) throw Exception('لا يوجد مستخدم مسجل الدخول');
+      await SimpleFCMService().sendNotificationToUser(
+        userId: currentUser.uid,
+        title: 'اختبار سريع ✅',
+        body: 'هذا إشعار تجريبي للتأكد من عمل النظام بشكل صحيح',
+        data: {'type': 'test', 'timestamp': DateTime.now().millisecondsSinceEpoch.toString()},
+      );
       _showSuccessSnackBar('تم إرسال الإشعار التجريبي بنجاح');
     } catch (e) {
       _showErrorSnackBar('خطأ في إرسال الإشعار: $e');
@@ -184,7 +193,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   Future<void> _runFullTest() async {
     try {
       _showInfoSnackBar('جاري إرسال جميع أنواع الإشعارات...');
-      await NotificationTestHelper.runFullNotificationTest();
+      final fcm = SimpleFCMService();
+      for (final role in ['admin', 'supervisor', 'parent']) {
+        await fcm.sendNotificationToUserType(
+          userType: role,
+          title: 'اختبار شامل 🔔',
+          body: 'إشعار تجريبي لجميع مستخدمي $role',
+          data: {'type': 'test'},
+        );
+      }
       _showSuccessSnackBar('تم إرسال جميع الإشعارات التجريبية بنجاح');
     } catch (e) {
       _showErrorSnackBar('خطأ في الاختبار الشامل: $e');
@@ -193,7 +210,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   Future<void> _runWelcomeTest() async {
     try {
-      await NotificationTestHelper.testWelcomeNotification();
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) throw Exception('لا يوجد مستخدم مسجل الدخول');
+      await NotificationService().sendWelcomeNotification(
+        currentUser.uid,
+        currentUser.displayName ?? 'المدير',
+      );
       _showSuccessSnackBar('تم إرسال إشعار الترحيب التجريبي');
     } catch (e) {
       _showErrorSnackBar('خطأ في إرسال إشعار الترحيب: $e');
@@ -201,7 +223,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   }
 
   void _showSystemInfo() {
-    NotificationTestHelper.printSystemInfo();
+    debugPrint('🔔 نظام الإشعارات: SimpleFCMService + NotificationService (موحّد)');
     _showInfoSnackBar('تم طباعة معلومات النظام في وحدة التحكم');
   }
 

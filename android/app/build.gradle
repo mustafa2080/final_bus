@@ -9,6 +9,7 @@ android {
     namespace = "com.example.mybus"
     compileSdk = 36
     compileSdkVersion = 36
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -52,7 +53,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.mybus"
-        minSdk = 23
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -78,7 +79,6 @@ android {
             minifyEnabled = false
             shrinkResources = false
             debuggable = true
-            applicationIdSuffix = ".debug"
             // تحسينات للسرعة في وضع التطوير
             crunchPngs = false
             zipAlignEnabled = false

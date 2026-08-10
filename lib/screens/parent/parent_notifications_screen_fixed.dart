@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/notification_model.dart';
-import '../../utils/notification_test_helper.dart';
 
 class ParentNotificationsScreen extends StatefulWidget {
   const ParentNotificationsScreen({super.key});
@@ -63,11 +62,6 @@ class _ParentNotificationsScreenState extends State<ParentNotificationsScreen> {
             icon: const Icon(Icons.build),
             onPressed: _fixNotifications,
             tooltip: 'إصلاح الإشعارات',
-          ),
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () => NotificationTestHelper.showQuickTestMenu(context),
-            tooltip: 'اختبار الإشعارات',
           ),
           StreamBuilder<int>(
             stream: _databaseService.getParentNotificationsCount(_authService.currentUser?.uid ?? ''),

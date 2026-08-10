@@ -1544,47 +1544,48 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
 
   Widget _buildEmptyState() {
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: ResponsiveHelper.getPadding(context,
             mobilePadding: const EdgeInsets.all(24),
             tabletPadding: const EdgeInsets.all(32),
             desktopPadding: const EdgeInsets.all(40)),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.school,
               size: ResponsiveHelper.getIconSize(context,
-                  mobileSize: 64, tabletSize: 80, desktopSize: 96),
+                  mobileSize: 40, tabletSize: 56, desktopSize: 72),
               color: Colors.grey[400],
             ),
             SizedBox(
                 height:
-                    ResponsiveHelper.getSpacing(context) * 1.25),
+                    ResponsiveHelper.getSpacing(context) * 0.75),
             Text(
               'لا توجد بيانات طلاب',
               style: TextStyle(
                 fontSize: ResponsiveHelper.getFontSize(context,
-                    mobileFontSize: 18, tabletFontSize: 20, desktopFontSize: 24),
+                    mobileFontSize: 16, tabletFontSize: 18, desktopFontSize: 22),
                 fontWeight: FontWeight.bold,
                 color: Colors.grey[600],
               ),
             ),
             SizedBox(
                 height:
-                    ResponsiveHelper.getSpacing(context) * 0.5),
+                    ResponsiveHelper.getSpacing(context) * 0.4),
             Text(
               'لم يتم إضافة أي طلاب بعد',
               style: TextStyle(
                 fontSize: ResponsiveHelper.getFontSize(context,
-                    mobileFontSize: 14, tabletFontSize: 16, desktopFontSize: 18),
+                    mobileFontSize: 12, tabletFontSize: 14, desktopFontSize: 16),
                 color: Colors.grey[500],
               ),
               textAlign: TextAlign.center,
             ),
             SizedBox(
                 height:
-                    ResponsiveHelper.getSpacing(context) * 1.5),
+                    ResponsiveHelper.getSpacing(context) * 1),
             CustomButton(
               text: 'إضافة طالب جديد',
               onPressed: () {
@@ -1593,6 +1594,25 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
               width: ResponsiveHelper.isMobile(context)
                   ? MediaQuery.of(context).size.width * 0.8
                   : 200,
+            ),
+            SizedBox(
+                height:
+                    ResponsiveHelper.getSpacing(context) * 1),
+            OutlinedButton.icon(
+              onPressed: () {
+                context.push('/parent/link-student');
+              },
+              icon: const Icon(Icons.link, size: 16),
+              label: const Text(
+                'اربط طالب مسجل بحسابك',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF667EEA),
+                side: const BorderSide(color: Color(0xFF667EEA)),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
             ),
           ],
         ),

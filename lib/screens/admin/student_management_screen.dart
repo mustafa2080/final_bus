@@ -9,7 +9,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_sender_service.dart';
-import '../../services/enhanced_notification_service.dart';
 import '../../models/student_model.dart';
 import '../../models/bus_model.dart';
 import '../../models/user_model.dart';
@@ -1720,24 +1719,61 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
           .value = excel.TextCellValue(exampleData[i]);
       }
 
+      // حذف الورقة الافتراضية الفارغة إن وجدت
+      if (excelFile.sheets.containsKey('Sheet1') && excelFile.sheets.length > 1) {
+        excelFile.delete('Sheet1');
+      }
+
       // حفظ الملف
       final bytes = excelFile.encode();
-      if (bytes != null) {
-        // في التطبيق الحقيقي، يمكن حفظ الملف في مجلد التحميلات
+      if (bytes == null) {
+        throw Exception('فشل إنشاء بيانات ملف Excel');
+      }
+
+      final fileName = 'نموذج_استيراد_الطلاب_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+
+      if (kIsWeb) {
+        // على الويب: file_picker.saveFile بيحفظ البيانات مباشرة
+        await FilePicker.platform.saveFile(
+          fileName: fileName,
+          bytes: Uint8List.fromList(bytes),
+          type: FileType.custom,
+          allowedExtensions: ['xlsx'],
+        );
+      } else {
+        // على الموبايل/سطح المكتب: نطلب من المستخدم مكان الحفظ
+        final savePath = await FilePicker.platform.saveFile(
+          fileName: fileName,
+          type: FileType.custom,
+          allowedExtensions: ['xlsx'],
+        );
+
+        if (savePath == null) {
+          // المستخدم ألغى عملية الحفظ
+          return;
+        }
+
+        final file = File(savePath);
+        await file.writeAsBytes(bytes);
+      }
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم إنشاء نموذج Excel بنجاح'),
+          SnackBar(
+            content: Text('تم حفظ النموذج بنجاح: $fileName'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('خطأ في إنشاء النموذج: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ في إنشاء النموذج: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1893,26 +1929,68 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
     try {
       int successCount = 0;
       int errorCount = 0;
+      final List<String> skippedRows = [];
+      final List<String> warnings = [];
 
-      for (final studentData in studentsData) {
+      for (int i = 0; i < studentsData.length; i++) {
+        final studentData = studentsData[i];
         try {
-          // إنشاء حساب ولي أمر مؤقت
-          final parentId = 'parent_${DateTime.now().millisecondsSinceEpoch}_${successCount}';
+          final studentName = (studentData['studentName'] ?? '').trim();
+          final parentName = (studentData['parentName'] ?? '').trim();
+          final parentPhone = _normalizePhone(studentData['parentPhone'] ?? '');
+          final parentEmail = (studentData['parentEmail'] ?? '').trim();
 
-          // إنشاء الطالب
+          // التحقق من الحقول الأساسية المطلوبة قبل الحفظ
+          if (studentName.isEmpty || parentName.isEmpty || parentPhone.isEmpty) {
+            errorCount++;
+            skippedRows.add('صف ${i + 2}: بيانات أساسية ناقصة (الاسم/ولي الأمر/الهاتف)');
+            continue;
+          }
+
+          if (!_isValidEgyptianPhone(parentPhone)) {
+            errorCount++;
+            skippedRows.add('صف ${i + 2}: رقم هاتف غير صالح ($parentPhone)');
+            continue;
+          }
+
+          if (parentEmail.isNotEmpty && !_isValidEmail(parentEmail)) {
+            errorCount++;
+            skippedRows.add('صف ${i + 2}: بريد إلكتروني غير صالح ($parentEmail)');
+            continue;
+          }
+
+          // محاولة مطابقة خط الحافلة النصي بباص حقيقي مسجل في النظام
+          final busRoute = (studentData['busRoute'] ?? '').trim();
+          String matchedBusId = '';
+          if (busRoute.isNotEmpty) {
+            try {
+              final matchedBus = await _databaseService.getBusByRoute(busRoute);
+              if (matchedBus != null) {
+                matchedBusId = matchedBus.id;
+              } else {
+                warnings.add('صف ${i + 2} ($studentName): لم يتم العثور على خط حافلة باسم "$busRoute" - تم الحفظ بدون تعيين حافلة');
+              }
+            } catch (e) {
+              debugPrint('Error matching bus route "$busRoute": $e');
+            }
+          }
+
+          // إنشاء الطالب - يتم توليد id وqrCode تلقائياً داخل addStudent
+          // parentId يُترك فارغاً ليتم ربطه لاحقاً عند تسجيل ولي الأمر
+          // (نفس الأسلوب المتبع في شاشة إضافة طالب يدوياً)
           final student = StudentModel(
             id: '',
-            name: studentData['studentName'] ?? '',
-            parentId: parentId,
-            parentName: studentData['parentName'] ?? '',
-            parentPhone: studentData['parentPhone'] ?? '',
-            parentEmail: studentData['parentEmail'] ?? '',
+            name: studentName,
+            parentId: '',
+            parentName: parentName,
+            parentPhone: parentPhone,
+            parentEmail: parentEmail,
             qrCode: '',
-            schoolName: studentData['schoolName'] ?? '',
-            grade: studentData['grade'] ?? '',
-            address: studentData['address'] ?? '',
-            busRoute: studentData['busRoute'] ?? '',
-            busId: '',
+            schoolName: (studentData['schoolName'] ?? '').trim(),
+            grade: (studentData['grade'] ?? '').trim(),
+            address: (studentData['address'] ?? '').trim(),
+            busRoute: busRoute,
+            busId: matchedBusId,
             photoUrl: null,
             currentStatus: StudentStatus.home,
             isActive: true,
@@ -1924,6 +2002,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
           successCount++;
         } catch (e) {
           errorCount++;
+          skippedRows.add('صف ${i + 2}: خطأ غير متوقع ($e)');
           debugPrint('Error importing student: $e');
         }
       }
@@ -1935,8 +2014,13 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
               'تم استيراد $successCount طالب بنجاح${errorCount > 0 ? '، فشل في استيراد $errorCount طالب' : ''}',
             ),
             backgroundColor: successCount > 0 ? Colors.green : Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
+
+        if (skippedRows.isNotEmpty || warnings.isNotEmpty) {
+          _showSkippedRowsDialog([...skippedRows, ...warnings]);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1950,16 +2034,71 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
     }
   }
 
+  void _showSkippedRowsDialog(List<String> skippedRows) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('صفوف تم تخطيها'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: skippedRows.length,
+            itemBuilder: (context, index) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text('• ${skippedRows[index]}'),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('حسناً'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// تطبيع رقم الهاتف: إزالة المسافات والرموز، وتحويل +20/0020 إلى 0
+  String _normalizePhone(String rawPhone) {
+    String phone = rawPhone.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (phone.startsWith('+20')) {
+      phone = '0${phone.substring(3)}';
+    } else if (phone.startsWith('0020')) {
+      phone = '0${phone.substring(4)}';
+    } else if (phone.startsWith('20') && phone.length == 12) {
+      phone = '0${phone.substring(2)}';
+    }
+    return phone;
+  }
+
+  /// التحقق من رقم هاتف مصري صالح (01 + رقم شبكة صحيح + 8 أرقام)
+  bool _isValidEgyptianPhone(String phone) {
+    return RegExp(r'^01[0125][0-9]{8}$').hasMatch(phone);
+  }
+
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[\w\.\-]+@[\w\-]+\.[a-zA-Z]{2,}$').hasMatch(email);
+  }
+
   Widget _buildExpandableFAB() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // Expanded options with smooth animations
-        AnimatedContainer(
+        AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
-          height: _isFABExpanded ? null : 0,
-          child: AnimatedOpacity(
+          child: !_isFABExpanded
+              ? const SizedBox.shrink()
+              : AnimatedOpacity(
             duration: const Duration(milliseconds: 250),
             opacity: _isFABExpanded ? 1.0 : 0.0,
             child: Column(
@@ -2059,12 +2198,12 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
           child: Transform.translate(
             offset: Offset(0, (1 - value) * 20),
             child: Opacity(
-              opacity: value,
+              opacity: value.clamp(0.0, 1.0),
               child: FloatingActionButton.extended(
                 onPressed: onPressed,
                 backgroundColor: backgroundColor,
                 heroTag: label,
-                elevation: 4 * value,
+                elevation: 4 * value.clamp(0.0, 1.0),
                 icon: Icon(icon, color: Colors.white, size: 20),
                 label: Text(
                   label,

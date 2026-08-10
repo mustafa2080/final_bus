@@ -481,11 +481,8 @@ class _RegisterScreenState extends State<RegisterScreen>
           if (value == null || value.isEmpty) {
             return 'يرجى إدخال كلمة المرور';
           }
-          if (value.length < 8) {
-            return 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
-          }
-          if (!RegExp(r'^(?=.*[a-zA-Z])(?=.*\d)').hasMatch(value)) {
-            return 'كلمة المرور يجب أن تحتوي على أحرف وأرقام';
+          if (value.length < 6) {
+            return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
           }
           return null;
         },

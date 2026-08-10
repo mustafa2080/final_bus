@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/student_model.dart';
 import '../../models/bus_model.dart';
 import '../../services/database_service.dart';
-import '../../services/enhanced_notification_service.dart';
+import '../../services/notification_service.dart';
 import '../../utils/app_constants.dart';
 
 
@@ -21,7 +21,6 @@ class EditStudentScreen extends StatefulWidget {
 class _EditStudentScreenState extends State<EditStudentScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final DatabaseService _databaseService = DatabaseService();
-  final EnhancedNotificationService _notificationService = EnhancedNotificationService();
 
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -911,7 +910,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       final adminName = adminDoc.data()?['name'] ?? 'الإدارة';
 
       // إرسال الإشعارات (باستثناء الإدمن الحالي)
-      await _notificationService.notifyStudentDataUpdate(
+      await NotificationService().notifyStudentDataUpdate(
         studentId: updatedStudent.id,
         studentName: updatedStudent.name,
         parentId: updatedStudent.parentId,

@@ -1,11 +1,61 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/student_model.dart';
-import '../models/user_model.dart';
 import '../models/parent_student_link_model.dart';
 
 class ParentStudentLinkService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// Search unlinked students by parent phone or parent name (used by parent self-linking)
+  Future<List<StudentModel>> searchUnlinkedStudents({
+    String? parentPhone,
+    String? parentName,
+  }) async {
+    try {
+      final snapshot = await _firestore
+          .collection('students')
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final normalizedPhone = parentPhone?.replaceAll(RegExp(r'[\s\-]'), '');
+      final normalizedName = parentName?.trim().toLowerCase();
+
+      final results = <StudentModel>[];
+      for (final doc in snapshot.docs) {
+        try {
+          final student = StudentModel.fromMap({'id': doc.id, ...doc.data()});
+
+          // Skip students already linked to a real parent account
+          final isUnlinked = student.parentId.isEmpty || student.parentId.startsWith('parent_');
+          if (!isUnlinked) continue;
+
+          bool matches = false;
+          if (normalizedPhone != null && normalizedPhone.isNotEmpty) {
+            final studentPhone = student.parentPhone.replaceAll(RegExp(r'[\s\-]'), '');
+            if (studentPhone.isNotEmpty && studentPhone == normalizedPhone) {
+              matches = true;
+            }
+          }
+          if (!matches && normalizedName != null && normalizedName.isNotEmpty) {
+            if (student.parentName.trim().toLowerCase() == normalizedName) {
+              matches = true;
+            }
+          }
+
+          if (matches) {
+            results.add(student);
+          }
+        } catch (e) {
+          debugPrint('❌ Error parsing student while searching unlinked: $e');
+        }
+      }
+
+      return results;
+    } catch (e) {
+      debugPrint('❌ Error searching unlinked students: $e');
+      throw Exception('فشل في البحث عن الطلاب: $e');
+    }
+  }
 
   /// Link multiple students to parent at once (improved version)
   Future<void> linkMultipleStudentsToParent(List<String> studentIds, String parentId) async {

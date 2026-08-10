@@ -67,7 +67,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final rawWidth = MediaQuery.of(context).size.width;
+    final screenWidth = rawWidth > 700 ? 700.0 : rawWidth;
     final screenHeight = MediaQuery.of(context).size.height;
     final textScaleFactor = MediaQuery.of(context).textScaleFactor;
 
@@ -76,7 +77,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
       appBar: const AdminAppBar(
         title: 'التقارير والإحصائيات',
       ),
-      body: Column(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Column(
         children: [
           _buildEnhancedDateSelector(screenWidth, screenHeight, textScaleFactor),
           TabBar(
@@ -84,6 +88,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             labelColor: const Color(0xFF1E88E5),
             unselectedLabelColor: Colors.grey[600],
             indicatorColor: const Color(0xFF1E88E5),
+            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
             labelStyle: GoogleFonts.cairo(
               fontSize: 14 * textScaleFactor,
               fontWeight: FontWeight.bold,
@@ -110,6 +115,8 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
             ),
           ),
         ],
+          ),
+        ),
       ),
       bottomNavigationBar: const AdminBottomNavigation(
         currentIndex: 3,
@@ -121,10 +128,18 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
     return Tab(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 6),
-          Text(text),
+          Icon(icon, size: 16),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              softWrap: false,
+            ),
+          ),
         ],
       ),
     );
@@ -259,7 +274,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
         onTap: _selectDate,
         borderRadius: BorderRadius.circular(15),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           decoration: BoxDecoration(
             color: const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(15),
@@ -270,19 +285,25 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
                 Icons.calendar_today_rounded,
                 size: 16,
                 color: Color(0xFF64748B),
               ),
-              const SizedBox(width: 8),
-              Text(
-                DateFormat('dd/MM/yyyy').format(_selectedDate),
-                style: GoogleFonts.cairo(
-                  fontSize: 13 * textScaleFactor,
-                  color: const Color(0xFF1E293B),
-                  fontWeight: FontWeight.w500,
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  DateFormat('dd/MM/yyyy').format(_selectedDate),
+                  style: GoogleFonts.cairo(
+                    fontSize: 13 * textScaleFactor,
+                    color: const Color(0xFF1E293B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  softWrap: false,
                 ),
               ),
             ],
@@ -397,7 +418,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
   }
 
   Widget _buildAnimatedStatCard(StatCard stat, double screenWidth, double screenHeight, double textScaleFactor) {
-    return Container(
+    return LayoutBuilder(
+      builder: (context, cardConstraints) {
+        final cardWidth = cardConstraints.maxWidth;
+        return Container(
       decoration: BoxDecoration(
         gradient: stat.gradient,
         borderRadius: BorderRadius.circular(20),
@@ -415,12 +439,15 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
           onTap: () => _showStatDetails(stat),
           borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: EdgeInsets.all(screenWidth * 0.05),
-            child: Column(
+            padding: EdgeInsets.all(cardWidth * 0.08),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: EdgeInsets.all(screenWidth * 0.03),
+                  padding: EdgeInsets.all(cardWidth * 0.06),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(15),
@@ -428,14 +455,10 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                   child: Icon(
                     stat.icon,
                     color: Colors.white,
-                    size: ResponsiveHelper.getIconSize(context,
-                      mobileSize: 24,
-                      tabletSize: 28,
-                      desktopSize: 32,
-                    ),
+                    size: cardWidth * 0.16,
                   ),
                 ),
-                SizedBox(height: screenHeight * 0.02),
+                SizedBox(height: cardWidth * 0.06),
                 FutureBuilder<int>(
                   future: stat.future,
                   builder: (context, snapshot) {
@@ -458,11 +481,7 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                         return Text(
                           '$animatedValue',
                           style: GoogleFonts.cairo(
-                            fontSize: ResponsiveHelper.getFontSize(context,
-                              mobile: 24,
-                              tablet: 28,
-                              desktop: 32,
-                            ) * textScaleFactor,
+                            fontSize: cardWidth * 0.16,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -471,15 +490,11 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                     );
                   },
                 ),
-                SizedBox(height: screenHeight * 0.01),
+                SizedBox(height: cardWidth * 0.03),
                 Text(
                   stat.title,
                   style: GoogleFonts.cairo(
-                    fontSize: ResponsiveHelper.getFontSize(context,
-                      mobile: 12,
-                      tablet: 14,
-                      desktop: 16,
-                    ) * textScaleFactor,
+                    fontSize: cardWidth * 0.08,
                     fontWeight: FontWeight.w600,
                     color: Colors.white.withOpacity(0.9),
                   ),
@@ -489,9 +504,12 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                 ),
               ],
             ),
+            ),
           ),
         ),
       ),
+    );
+      },
     );
   }
 
@@ -979,12 +997,16 @@ class _ReportsScreenState extends State<ReportsScreen> with TickerProviderStateM
                 children: [
                   Icon(Icons.schedule, color: Colors.amber, size: 16 * textScaleFactor),
                   SizedBox(width: screenWidth * 0.02),
-                  Text(
-                    'أكثر الأوقات ازدحاماً: ${busiestHour.toString().padLeft(2, '0')}:00 ($maxTripsInHour رحلة)',
-                    style: GoogleFonts.cairo(
-                      fontSize: 12 * textScaleFactor,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF2C3E50),
+                  Flexible(
+                    child: Text(
+                      'أكثر الأوقات ازدحاماً: ${busiestHour.toString().padLeft(2, '0')}:00 ($maxTripsInHour رحلة)',
+                      style: GoogleFonts.cairo(
+                        fontSize: 12 * textScaleFactor,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF2C3E50),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
                     ),
                   ),
                 ],

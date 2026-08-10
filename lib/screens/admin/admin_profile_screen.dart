@@ -425,7 +425,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
         CustomScrollView(
           slivers: [
             SliverAppBar(
-              expandedHeight: 200,
+              expandedHeight: 240,
               floating: false,
               pinned: true,
               flexibleSpace: FlexibleSpaceBar(
@@ -488,7 +488,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -513,7 +513,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: Colors.white.withAlpha(51),
                     borderRadius: BorderRadius.circular(12),
@@ -521,7 +521,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
                   child: const Icon(
                     Icons.admin_panel_settings,
                     color: Colors.white,
-                    size: 28,
+                    size: 24,
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -532,7 +532,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
                       Text(
                         'الملف الشخصي',
                         style: const TextStyle(
-                          fontSize: 24,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
                         ),
@@ -550,9 +550,9 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withAlpha(51),
                 borderRadius: BorderRadius.circular(12),
@@ -560,8 +560,8 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
               child: Row(
                 children: [
                   Container(
-                    width: 60,
-                    height: 60,
+                    width: 52,
+                    height: 52,
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(30),
@@ -569,7 +569,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
                     child: const Icon(
                       Icons.person,
                       color: Color(0xFF1E88E5),
-                      size: 32,
+                      size: 28,
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -707,7 +707,7 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
       duration: const Duration(milliseconds: 500),
       child: Container(
         key: ValueKey<int>(value),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
@@ -715,26 +715,31 @@ class _AdminProfileScreenState extends State<AdminProfileScreen>
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 8),
+            Icon(icon, size: 24, color: color),
+            const SizedBox(height: 4),
             Text(
               value.toString(),
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               title,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 color: color.withOpacity(0.8),
                 fontWeight: FontWeight.w500,
               ),
               textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

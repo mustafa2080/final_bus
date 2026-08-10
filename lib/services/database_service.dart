@@ -19,7 +19,6 @@ import '../models/parent_student_link_model.dart';
 import 'rate_limit_service.dart';
 import 'cache_service.dart';
 import 'notification_service.dart';
-import 'enhanced_notification_service.dart';
 import 'simple_fcm_service.dart';
 import 'notification_fix.dart';
 
@@ -562,18 +561,17 @@ class DatabaseService {
 
       if (changes.isNotEmpty) {
         // إرسال إشعار لولي الأمر فقط (بدون إشعار الأدمن)
-        final notificationService = EnhancedNotificationService();
-        await notificationService.sendNotificationToUser(
+        await SimpleFCMService().sendNotificationToUser(
           userId: parentId,
           title: 'تم تحديث معلومات $studentName',
           body: 'تم تحديث المعلومات التالية:\n• ${changes.join('\n• ')}',
-          type: 'student',
           data: {
             'type': 'student_info_update',
-            'changes': changes,
+            'changes': changes.join(', '),
             'studentId': studentId,
             'timestamp': DateTime.now().toIso8601String(),
           },
+          channelId: 'student_notifications',
         );
         debugPrint('✅ Parent notification sent for student info update (no admin notification)');
       }

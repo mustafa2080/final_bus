@@ -7,7 +7,6 @@ import '../../models/student_model.dart';
 import '../../models/bus_model.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
-import '../../services/enhanced_notification_service.dart';
 import '../../utils/constants.dart';
 import '../../utils/responsive_helper.dart';
 import '../../widgets/admin_bottom_navigation.dart';
@@ -21,7 +20,6 @@ class AllStudentsScreen extends StatefulWidget {
 
 class _AllStudentsScreenState extends State<AllStudentsScreen> {
   final DatabaseService _databaseService = DatabaseService();
-  final EnhancedNotificationService _notificationService = EnhancedNotificationService();
   String _searchQuery = '';
   String _selectedGrade = 'الكل';
   String _selectedStatus = 'الكل';
@@ -2055,7 +2053,7 @@ class _AllStudentsScreenState extends State<AllStudentsScreen> {
 
       // إرسال الإشعارات إذا كان هناك تغييرات
       if (updatedFields.isNotEmpty) {
-        await _notificationService.notifyStudentDataUpdate(
+        await NotificationService().notifyStudentDataUpdate(
           studentId: updatedStudent.id,
           studentName: updatedStudent.name,
           parentId: updatedStudent.parentId,
