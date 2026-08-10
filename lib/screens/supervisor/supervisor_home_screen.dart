@@ -2168,7 +2168,9 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      // padding مخفض من 20 إلى 14 لتوفير مساحة رأسية أكبر للمحتوى
+      // وتفادي RenderFlex overflow لما الأب بيدي ارتفاع ضيق (مثلاً 100px)
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -2190,10 +2192,14 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
           width: 1.5,
         ),
       ),
+      // Column تتقلص لحجم محتواها الفعلي بدل ما تحاول تاخد كل الارتفاع
+      // المتاح؛ وتقليل حجم الأيقونة والخط بيقلل احتمالية أي overflow
+      // لو المساحة المتاحة من الأب ضيقة.
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -2209,13 +2215,13 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                 width: 1,
               ),
             ),
-            child: Icon(icon, color: color, size: 28),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             value,
             style: TextStyle(
-              fontSize: 28,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               color: color,
               letterSpacing: -0.5,
@@ -2230,6 +2236,8 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
               fontWeight: FontWeight.w600,
             ),
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
