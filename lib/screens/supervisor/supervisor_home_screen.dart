@@ -1851,6 +1851,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
 
   Widget _buildQuickStats() {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         // الصف الأول - الإحصائيات الحالية
         Row(
@@ -2042,7 +2043,11 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF1E88E5).withAlpha(76)),
       ),
+      // mainAxisSize: min بيمنع الـ Column من محاولة ملء أي ارتفاع مفروض
+      // من أب خارجي (زي StreamBuilder/FutureBuilder جوه Column ضيق)،
+      // وده بيتفادى RenderFlex vertical overflow.
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -2141,6 +2146,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 8),
@@ -2160,6 +2166,8 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
               fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
