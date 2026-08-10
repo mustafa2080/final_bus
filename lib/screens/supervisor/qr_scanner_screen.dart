@@ -427,7 +427,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
             ),
           ),
           Container(
-            height: isSmallScreen ? 120 : 140,
+            // شلنا الـ height الثابت (كان 120/140) لأنه كان بيسبب
+            // RenderFlex vertical overflow لما محتوى الـ Column
+            // (Row + نص + Row تاني) بيبقى أطول من الارتفاع المحجوز،
+            // خصوصًا على الشاشات الصغيرة. دلوقتي الـ Container بياخد
+            // حجمه من محتواه الفعلي (مع mainAxisSize.min).
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: const BorderRadius.only(
@@ -444,6 +448,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
             ),
             padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
