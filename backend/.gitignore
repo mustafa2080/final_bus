@@ -8,7 +8,13 @@ node_modules/
 
 # Firebase
 serviceAccountKey.json
+*firebase-adminsdk*.json
 firebase-debug.log
+
+# Scripts with real user/customer data - never push
+add_5_students.js
+list_parents.js
+replace_5_students_unlinked.js
 
 # Logs
 *.log

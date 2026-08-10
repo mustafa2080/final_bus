@@ -271,52 +271,188 @@ class _LinkStudentScreenState extends State<LinkStudentScreen> {
 
   Widget _buildStudentCard(StudentModel student) {
     final isLinking = _linkingIds.contains(student.id);
+    final hasPhone = student.parentPhone.isNotEmpty;
+    final hasParentName = student.parentName.isNotEmpty;
+    final hasSchoolInfo = student.schoolName.isNotEmpty || student.grade.isNotEmpty;
+    final hasAddress = student.address.isNotEmpty;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 8, offset: const Offset(0, 3)),
+          BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF667EEA).withAlpha(30),
-            child: Text(
-              student.name.isNotEmpty ? student.name[0] : 'ط',
-              style: const TextStyle(color: Color(0xFF667EEA), fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+          // Header: صورة الطالب + الاسم + زرار الربط
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(student.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 2),
-                Text('ولي الأمر: ${student.parentName}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                Text('${student.schoolName} - ${student.grade}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: const Color(0xFF667EEA).withAlpha(30),
+                  child: Text(
+                    student.name.isNotEmpty ? student.name[0] : 'ط',
+                    style: const TextStyle(
+                      color: Color(0xFF667EEA),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        student.name.isNotEmpty ? student.name : 'بدون اسم',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 17,
+                          color: Color(0xFF2D3748),
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (hasSchoolInfo) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          [student.schoolName, student.grade].where((s) => s.isNotEmpty).join(' - '),
+                          style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          isLinking
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              : ElevatedButton(
-                  onPressed: () => _linkStudent(student),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text('ربط'),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          // تفاصيل الطالب - كل المعلومات المتاحة ظاهرة بوضوح
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow(
+                  icon: Icons.person_outline_rounded,
+                  label: 'ولي الأمر',
+                  value: hasParentName ? student.parentName : 'غير مسجل',
                 ),
+                const SizedBox(height: 10),
+                _buildDetailRow(
+                  icon: Icons.phone_outlined,
+                  label: 'رقم الهاتف',
+                  value: hasPhone ? student.parentPhone : 'غير مسجل',
+                ),
+                if (hasAddress) ...[
+                  const SizedBox(height: 10),
+                  _buildDetailRow(
+                    icon: Icons.location_on_outlined,
+                    label: 'العنوان',
+                    value: student.address,
+                  ),
+                ],
+                const SizedBox(height: 10),
+                _buildDetailRow(
+                  icon: Icons.qr_code_2_rounded,
+                  label: 'كود الطالب',
+                  value: student.qrCode.isNotEmpty ? student.qrCode : student.id,
+                ),
+                const SizedBox(height: 10),
+                _buildDetailRow(
+                  icon: Icons.directions_bus_outlined,
+                  label: 'الحالة الحالية',
+                  value: student.statusDisplayText,
+                  valueColor: _statusColor(student.currentStatus),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          // زرار الربط
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: isLinking
+                  ? const Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: () => _linkStudent(student),
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      label: const Text('ربط بحسابي'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF667EEA)),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 90,
+          child: Text(
+            label,
+            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? const Color(0xFF2D3748),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _statusColor(StudentStatus status) {
+    switch (status) {
+      case StudentStatus.home:
+        return const Color(0xFF64748B);
+      case StudentStatus.onBus:
+        return const Color(0xFFF59E0B);
+      case StudentStatus.atSchool:
+        return const Color(0xFF10B981);
+    }
   }
 }

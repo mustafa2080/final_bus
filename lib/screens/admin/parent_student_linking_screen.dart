@@ -30,9 +30,10 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isSmall = ResponsiveHelper.isSmallScreen(context);
     return Scaffold(
       appBar: AdminAppBar(
-        title: 'ربط الطلاب بأولياء الأمور المسجلين',
+        title: isSmall ? 'ربط الطلاب' : 'ربط الطلاب بأولياء الأمور المسجلين',
         actions: [
           // زر عرض الروابط الموجودة
           IconButton(
@@ -175,130 +176,214 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
   Widget _buildStudentCard(StudentModel student) {
     final isSelected = _selectedStudentIds.contains(student.id);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                // إضافة خانة اختيار في وضع التحديد المتعدد
-                if (_isMultiSelectMode)
-                  Checkbox(
-                    value: isSelected,
-                    onChanged: (value) {
-                      setState(() {
-                        if (value == true) {
-                          _selectedStudentIds.add(student.id);
-                        } else {
-                          _selectedStudentIds.remove(student.id);
-                        }
-                      });
-                    },
-                  ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 420;
+        final nameSize = ResponsiveHelper.getFontSize(context, mobile: 16, tablet: 17, desktop: 18);
+        final infoSize = ResponsiveHelper.getFontSize(context, mobile: 13, tablet: 14, desktop: 14);
 
-                CircleAvatar(
-                  backgroundColor: Colors.orange,
+        Widget infoLine(IconData icon, String text) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: infoSize + 2, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Expanded(
                   child: Text(
-                    student.name.isNotEmpty ? student.name[0] : 'ط',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    text,
+                    softWrap: true,
+                    style: TextStyle(fontSize: infoSize, color: Colors.grey[800]),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        student.name,
+              ],
+            ),
+          );
+        }
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: EdgeInsets.all(isNarrow ? 12 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // إضافة خانة اختيار في وضع التحديد المتعدد
+                    if (_isMultiSelectMode)
+                      Checkbox(
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedStudentIds.add(student.id);
+                            } else {
+                              _selectedStudentIds.remove(student.id);
+                            }
+                          });
+                        },
+                      ),
+
+                    CircleAvatar(
+                      backgroundColor: Colors.orange,
+                      child: Text(
+                        student.name.isNotEmpty ? student.name[0] : 'ط',
                         style: const TextStyle(
+                          color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
                         ),
                       ),
-                      Text('ولي الأمر: ${student.parentName}'),
-                      Text('الهاتف: ${student.parentPhone}'),
-                      Text('البريد: ${student.parentEmail}'),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'غير مربوط',
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
                     ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                // في وضع التحديد المتعدد، إظهار زر الإلغاء فقط
-                if (_isMultiSelectMode)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _selectedStudentIds.remove(student.id);
-                        });
-                      },
-                      icon: const Icon(Icons.remove_circle, size: 18),
-                      label: const Text('إلغاء التحديد'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  student.name,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: nameSize,
+                                  ),
+                                  softWrap: true,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'غير مربوط',
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          infoLine(Icons.person_outline, 'ولي الأمر: ${student.parentName}'),
+                          infoLine(Icons.phone_outlined, 'الهاتف: ${student.parentPhone}'),
+                          infoLine(Icons.email_outlined, 'البريد: ${student.parentEmail}'),
+                        ],
                       ),
                     ),
-                  )
-                else
-                  // في وضع التحديد الفردي، إظهار زر الربط الفردي
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showLinkDialog(student),
-                      icon: const Icon(Icons.link, size: 18),
-                      label: const Text('اختيار ولي أمر'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4CAF50),
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showStudentDetails(student),
-                    icon: const Icon(Icons.info, size: 18),
-                    label: const Text('التفاصيل'),
-                  ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                isNarrow
+                    ? Column(
+                        children: [
+                          if (_isMultiSelectMode)
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedStudentIds.remove(student.id);
+                                  });
+                                },
+                                icon: const Icon(Icons.remove_circle, size: 18),
+                                label: const Text('إلغاء التحديد'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                ),
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showLinkDialog(student),
+                                icon: const Icon(Icons.link, size: 18),
+                                label: const Text('اختيار ولي أمر'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4CAF50),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showStudentDetails(student),
+                              icon: const Icon(Icons.info, size: 18),
+                              label: const Text('التفاصيل'),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          // في وضع التحديد المتعدد، إظهار زر الإلغاء فقط
+                          if (_isMultiSelectMode)
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedStudentIds.remove(student.id);
+                                  });
+                                },
+                                icon: const Icon(Icons.remove_circle, size: 18),
+                                label: const Text('إلغاء التحديد'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                ),
+                              ),
+                            )
+                          else
+                            // في وضع التحديد الفردي، إظهار زر الربط الفردي
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showLinkDialog(student),
+                                icon: const Icon(Icons.link, size: 18),
+                                label: const Text('اختيار ولي أمر'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4CAF50),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showStudentDetails(student),
+                              icon: const Icon(Icons.info, size: 18),
+                              label: const Text('التفاصيل'),
+                            ),
+                          ),
+                        ],
+                      ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   void _showLinkDialog(StudentModel student) {
+    final screenWidth = MediaQuery.of(context).size.width;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('ربط الطالب: ${student.name}'),
+        title: Text(
+          'ربط الطالب: ${student.name}',
+          softWrap: true,
+        ),
         content: SizedBox(
-          width: double.maxFinite,
+          width: screenWidth < 600 ? screenWidth * 0.85 : 480,
           height: 400,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -418,12 +503,17 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),
-                title: Text(parent.name),
+                title: Text(
+                  parent.name,
+                  softWrap: true,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(parent.email),
-                    Text(parent.phone),
+                    const SizedBox(height: 4),
+                    Text(parent.email, softWrap: true),
+                    Text(parent.phone, softWrap: true),
                   ],
                 ),
                 trailing: ElevatedButton(
@@ -434,6 +524,7 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4CAF50),
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                   child: const Text('ربط'),
                 ),
@@ -482,13 +573,17 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
   // دالة جديدة لعرض نافذة حوار الربط الجماعي
   void _showMultiLinkDialog() {
     if (_selectedStudentIds.isEmpty) return;
+    final screenWidth = MediaQuery.of(context).size.width;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('ربط ${_selectedStudentIds.length} طالب بولي الأمر'),
+        title: Text(
+          'ربط ${_selectedStudentIds.length} طالب بولي الأمر',
+          softWrap: true,
+        ),
         content: SizedBox(
-          width: double.maxFinite,
+          width: screenWidth < 600 ? screenWidth * 0.85 : 480,
           height: 400,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -561,12 +656,17 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),
-                title: Text(parent.name),
+                title: Text(
+                  parent.name,
+                  softWrap: true,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(parent.email),
-                    Text(parent.phone),
+                    const SizedBox(height: 4),
+                    Text(parent.email, softWrap: true),
+                    Text(parent.phone, softWrap: true),
                   ],
                 ),
                 trailing: ElevatedButton(
@@ -577,6 +677,7 @@ class _ParentStudentLinkingScreenState extends State<ParentStudentLinkingScreen>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4CAF50),
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                   child: const Text('ربط الكل'),
                 ),
