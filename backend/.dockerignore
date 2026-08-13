@@ -1,0 +1,7 @@
+node_modules
+.env
+serviceAccountKey.json
+mybus-5a992-firebase-adminsdk-*.json
+*.log
+.git
+_diag
