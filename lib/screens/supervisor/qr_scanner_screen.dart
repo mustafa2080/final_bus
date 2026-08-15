@@ -36,6 +36,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
   String? _lastScannedCode;
   bool _isCameraInitialized = false;
   bool _hasPermission = false;
+  bool _cameraInitFailed = false;
   int _studentsOnBusCount = 0;
 
   late AnimationController _animationController;
@@ -59,38 +60,64 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
   }
 
   Future<void> _initializeCamera() async {
+    setState(() {
+      _cameraInitFailed = false;
+    });
+
     try {
-      final hasPermission = await PermissionsHelper.requestCameraPermission();
+      // لو طلب الإذن نفسه علّق (مشكلة معروفة على بعض أجهزة الأندرويد)
+      // منحطش الشاشة تستنى للأبد - بعد 10 ثواني نعتبرها فشلت
+      final hasPermission = await PermissionsHelper.requestCameraPermission().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          debugPrint('⏱️ Camera permission request timed out');
+          return false;
+        },
+      );
+
+      if (!mounted) return;
 
       if (!hasPermission) {
-        if (mounted) {
-          _showPermissionDialog();
-        }
+        setState(() {
+          _isCameraInitialized = false;
+          _hasPermission = false;
+          _cameraInitFailed = true;
+        });
+        _showPermissionDialog();
         return;
       }
 
       setState(() {
         _hasPermission = true;
         _isCameraInitialized = true;
+        _cameraInitFailed = false;
       });
 
       debugPrint('✅ Camera initialized successfully');
     } catch (e) {
       debugPrint('❌ Error initializing camera: $e');
+      if (!mounted) return;
       setState(() {
         _isCameraInitialized = false;
         _hasPermission = false;
+        _cameraInitFailed = true;
       });
-      if (mounted) {
-        _showErrorDialog('خطأ في تشغيل الكاميرا: $e');
-      }
+      _showErrorDialog('خطأ في تشغيل الكاميرا: $e');
     }
   }
 
   Future<void> _loadStudentsCount() async {
     try {
       final supervisorId = _authService.currentUser?.uid ?? '';
-      final assignments = await _databaseService.getSupervisorAssignments(supervisorId).first;
+      final assignments = await _databaseService
+          .getSupervisorAssignments(supervisorId)
+          .first
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => <SupervisorAssignmentModel>[],
+          );
+
+      if (!mounted) return;
 
       if (assignments.isNotEmpty) {
         final supervisorRoute = assignments.first.busRoute;
@@ -384,6 +411,56 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
                       ),
                     ),
                   )
+                else if (_cameraInitFailed)
+                  Container(
+                    color: Colors.grey[900],
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: isSmallScreen ? 60 : 80,
+                            color: Colors.orange,
+                          ),
+                          SizedBox(height: isSmallScreen ? 10 : 20),
+                          Text(
+                            'تعذر تشغيل الكاميرا',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isSmallScreen ? 18 : 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 5 : 10),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 20 : 40),
+                            child: Text(
+                              'قد تكون الكاميرا مستخدمة من تطبيق آخر أو أن الإذن لم يتم منحه. جرب مرة أخرى.',
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: isSmallScreen ? 13 : 15,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 16 : 24),
+                          ElevatedButton.icon(
+                            onPressed: _initializeCamera,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('إعادة المحاولة'),
+                          ),
+                          TextButton(
+                            onPressed: () => PermissionsHelper.openAppSettings(),
+                            child: const Text(
+                              'فتح إعدادات التطبيق',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
                 else
                   const Center(
                     child: Column(
@@ -644,7 +721,12 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
 
       debugPrint('✅ Student found: ${student.name}');
 
-      _showActionSelectionDialog(student);
+      // ننتظر فعليًا حتى يغلق المشرف حاوية اختيار العملية (باختيار
+      // إجراء أو بالإلغاء) قبل ما نرجّع الكاميرا تشتغل. من غير await هنا
+      // كان الـ finally بيتنفذ فورًا بعد فتح الحاوية (showDialog مش
+      // Future متنتظرة تلقائيًا)، فالكاميرا كانت بترجع تشتغل والحاوية
+      // لسه ظاهرة فوقها - وده اللي كان بيدي إحساس إن الحاوية "معلّقة".
+      await _showActionSelectionDialog(student);
 
     } catch (e) {
       debugPrint('❌ Error processing QR code: $e');
@@ -658,10 +740,10 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
     }
   }
 
-  void _showActionSelectionDialog(StudentModel student) {
+  Future<void> _showActionSelectionDialog(StudentModel student) {
     final currentStatus = student.currentStatus;
 
-    showDialog(
+    return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => WillPopScope(
@@ -846,7 +928,12 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
         ),
       ),
     ).then((_) {
-      if (mounted && !_isProcessing) {
+      // ملحوظة: عمدًا مبنفحصش !_isProcessing هنا. لو المستخدم دوس على
+      // زر إجراء (مش إلغاء)، الحاوية بتتقفل بـ pop() على طول قبل ما
+      // _processStudentAction تبدأ فعليًا وتحط _isProcessing = true،
+      // فكان فيه سباق بيخلي الكاميرا ترجع تشتغل قبل أوانها. _resumeScanning()
+      // نفسها بتتحقق من _isProcessing جواها، فالفحص هنا كان تكرار خطر.
+      if (mounted) {
         _resumeScanning();
       }
     });

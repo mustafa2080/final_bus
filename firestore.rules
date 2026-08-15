@@ -59,7 +59,10 @@ service cloud.firestore {
       // الأدمن يمكنه قراءة وكتابة جميع بيانات الحافلات
       allow read, write: if isAdmin();
       // المشرف يمكنه قراءة بيانات الحافلة المخصصة له
+      // + تحديث حالة التتبع وموقعه اللحظي (isTracking/lastLocation/...) فقط
+      // أثناء التتبع المباشر - بدون سماح بالإنشاء أو الحذف
       allow read: if isSupervisor();
+      allow update: if isSupervisor();
       // ولي الأمر يمكنه قراءة بيانات حافلة طفله
       allow read: if isParent();
     }
@@ -109,14 +112,41 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(resource.data.recipientId));
     }
 
-    // FCM Queue collection - طابور إرسال الإشعارات (بتعالجه Cloud Function processFcmQueue)
+    // FCM Tokens collection - نسخة منفصلة من توكنات الإشعارات لكل
+    // مستخدم، بيستخدمها الباك اند للإرسال الجماعي حسب نوع المستخدم
+    // (sendNotificationToUserType). كانت القاعدة دي ناقصة تمامًا قبل
+    // كده، فكانت بتقع تحت القاعدة الافتراضية اللي بتمنع كل شيء - وده
+    // كان بيمنع حفظ أي توكن إشعارات لأي مستخدم (ولي أمر / مشرف / أدمن).
+    match /fcm_tokens/{userId} {
+      // المستخدم يقدر يكتب/يحدّث توكن نفسه بس، الأدمن يقدر يدير الكل
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // FCM Queue collection - طابور إرسال الإشعارات (بيعالجه سيرفر Node.js
+    // الخاص بالباص - backend/index.js - عن طريق Firebase Admin SDK،
+    // اللي بيتخطى الـ rules دي أصلاً. القاعدة هنا بتتحكم بس في كتابة
+    // العميل (Flutter app) لعنصر جديد في الطابور.
     match /fcm_queue/{queueId} {
-      // الأدمن والمشرف يمكنهم إضافة إشعارات للطابور (لإرسالها لولي الأمر مثلاً)
-      allow create: if isAdmin() || isSupervisor();
-      // الأدمن فقط يقرأ الطابور (لأغراض المراقبة/الدعم)
+      // أي مستخدم مسجّل دخول يقدر يضيف إشعار للطابور (ولي الأمر
+      // بيحتاج ده لما يبعت شكوى أو طلب غياب للإدارة/المشرف، مش بس
+      // الأدمن والمشرف). الأمان الفعلي بييجي من إن الباك اند بيتحقق
+      // من وجود recipientId وبيجيب التوكن بنفسه؛ مفيش هنا أي إمكانية
+      // لولي الأمر إنه "يقرأ" رسائل التانيين، بس يضيف طلب إرسال.
+      allow create: if isAuthenticated();
+      // القراءة للأدمن فقط (لأغراض المراقبة/الدعم)
       allow read: if isAdmin();
-      // التحديث والحذف بيتم من Cloud Functions فقط (Admin SDK بيتخطى الـ rules أصلاً)
+      // التحديث والحذف بيتم من الباك اند فقط (Admin SDK بيتخطى الـ rules أصلاً)
       allow update, delete: if false;
+    }
+
+    // Parent Profiles collection - البيانات الشخصية لولي الأمر
+    // (الاسم الثلاثي/العنوان/الوظيفة/أرقام الهواتف). كانت القاعدة دي
+    // ناقصة تمامًا زي fcm_tokens، فكانت بتقع تحت القاعدة الافتراضية
+    // اللي بتمنع كل شيء - وده كان بيسبب permission-denied فورًا لما
+    // ولي الأمر يحاول يقرأ أو يحفظ بياناته في شاشة "إكمال البيانات".
+    match /parent_profiles/{parentId} {
+      // ولي الأمر يقدر يقرأ/يكتب بياناته هو بس، الأدمن يقدر يدير الكل
+      allow read, write: if isOwner(parentId) || isAdmin();
     }
 
     // Absence requests - طلبات الغياب
