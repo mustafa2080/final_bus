@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -609,11 +610,53 @@ class DatabaseService {
 
       debugPrint('✅ Student status updated successfully: $studentId');
 
-      // إرسال إشعار تغيير الحالة باستخدام الخدمة المحسنة
-      if (currentUserId.isNotEmpty) {
-        final currentUserDoc = await _firestore.collection('users').doc(currentUserId).get();
-        final supervisorName = currentUserDoc.exists ?
-          (currentUserDoc.data()?['name'] ?? 'مشرف') : 'مشرف';
+      // Invalidate cache for this student (سريعة، بنستناها عشان القراءات
+      // الجاية تلاقي البيانات محدثة فورًا)
+      final cacheKey = 'student_$studentId';
+      await _cacheService.remove(cacheKey);
+      debugPrint('🗑️ Invalidated cache for student: $studentId');
+
+      // من هنا لتحت: إشعارات وتحديثات ثانوية مش لازم الشاشة (السكانر)
+      // تستناها عشان ترجع تشتغل. كانت قبل كده كلها await متسلسل، وده
+      // كان بيسبب تعليق طويل خصوصًا لو فيه مشرف تاني على نفس الباص، أو
+      // كان أول سكان في اليوم (بيبعت إشعار بدء رحلة لكل أولياء الأمور).
+      // دلوقتي بنشغلها كـ "fire and forget" من غير await فترجع النتيجة
+      // للمشرف فورًا والإشعارات بتتبعت في الخلفية.
+      unawaited(_sendStudentStatusChangeNotifications(
+        studentId: studentId,
+        studentData: studentData,
+        oldStatus: oldStatus,
+        newStatus: newStatus,
+        currentUserId: currentUserId,
+      ));
+
+      // تحديث نقطة المزامنة (ثانوية، بدون انتظار)
+      unawaited(_firestore.collection('system_updates').doc('last_student_update').set({
+        'timestamp': Timestamp.fromDate(DateTime.now()),
+        'studentId': studentId,
+        'newStatus': newStatus,
+      }, SetOptions(merge: true)));
+    } catch (e) {
+      debugPrint('❌ Error updating student status: $e');
+      throw Exception('خطأ في تحديث حالة الطالب: $e');
+    }
+  }
+
+  /// إرسال كل إشعارات تغيير حالة الطالب (لولي الأمر + مشرف الباص) بدون
+  /// حجب استدعاء updateStudentStatus. مفصولة في دالة مستقلة عشان تتعمل
+  /// عليها unawaited() بأمان مع الحفاظ على معالجة الأخطاء الداخلية.
+  Future<void> _sendStudentStatusChangeNotifications({
+    required String studentId,
+    required Map<String, dynamic> studentData,
+    required String oldStatus,
+    required String newStatus,
+    required String currentUserId,
+  }) async {
+    try {
+      if (currentUserId.isEmpty) return;
+      final currentUserDoc = await _firestore.collection('users').doc(currentUserId).get();
+      final supervisorName = currentUserDoc.exists ?
+        (currentUserDoc.data()?['name'] ?? 'مشرف') : 'مشرف';
 
         // استخدام SimpleFCMService للإشعارات الخارجية
         await SimpleFCMService().sendStudentStatusUpdateNotification(
@@ -625,23 +668,58 @@ class DatabaseService {
           supervisorName: supervisorName,
           supervisorId: currentUserId,
         );
-      }
 
-      // Invalidate cache for this student
-      final cacheKey = 'student_$studentId';
-      await _cacheService.remove(cacheKey);
-      debugPrint('🗑️ Invalidated cache for student: $studentId');
-
-      // Force refresh any cached data by updating a timestamp
-      await _firestore.collection('system_updates').doc('last_student_update').set({
-        'timestamp': Timestamp.fromDate(DateTime.now()),
-        'studentId': studentId,
-        'newStatus': newStatus,
-      }, SetOptions(merge: true));
-
+        // إشعار المشرف المسؤول عن باص الطالب (إن وُجد وليس هو من قام بالتحديث)
+        try {
+          final busId = studentData['busId'] as String?;
+          if (busId != null && busId.isNotEmpty) {
+            final busDoc = await _firestore.collection('buses').doc(busId).get();
+            final assignedSupervisorId = busDoc.data()?['supervisorId'] as String?;
+            if (assignedSupervisorId != null &&
+                assignedSupervisorId.isNotEmpty &&
+                assignedSupervisorId != currentUserId) {
+              const statusLabels = {
+                'boarded': 'ركب الباص',
+                'left': 'نزل من الباص',
+                'onBus': 'على الباص',
+                'atSchool': 'وصل المدرسة',
+                'atHome': 'وصل المنزل',
+                'absent': 'غائب',
+              };
+              final statusText = statusLabels[newStatus] ?? newStatus;
+              final notifTitle = '📊 تحديث حالة ${studentData['name'] ?? 'طالب'}';
+              final notifBody = 'تم تحديث حالة الطالب إلى: $statusText بواسطة $supervisorName';
+              await SimpleFCMService().sendNotificationToUser(
+                userId: assignedSupervisorId,
+                title: notifTitle,
+                body: notifBody,
+                data: {
+                  'type': 'student_status_update',
+                  'studentId': studentId,
+                  'studentName': studentData['name'] ?? 'طالب',
+                  'oldStatus': oldStatus,
+                  'newStatus': newStatus,
+                  'action': 'student_status_changed',
+                },
+                channelId: 'student_notifications',
+              );
+              await saveNotification(NotificationModel(
+                id: _uuid.v4(),
+                title: notifTitle,
+                body: notifBody,
+                recipientId: assignedSupervisorId,
+                studentId: studentId,
+                studentName: studentData['name'],
+                type: NotificationType.general,
+                timestamp: DateTime.now(),
+              ));
+            }
+          }
+        } catch (e) {
+          debugPrint('❌ Error notifying bus supervisor of status change: $e');
+        }
     } catch (e) {
-      debugPrint('❌ Error updating student status: $e');
-      throw Exception('خطأ في تحديث حالة الطالب: $e');
+      debugPrint('❌ Error sending student status change notifications: $e');
     }
   }
 
@@ -3404,15 +3482,7 @@ class DatabaseService {
         .limit(50)
         .snapshots()
         .map((snapshot) {
-          final notifications = <NotificationModel>[];
-          for (final doc in snapshot.docs) {
-            try {
-              final notification = NotificationModel.fromMap(doc.data());
-              notifications.add(notification);
-            } catch (e) {
-              debugPrint('❌ Error parsing notification ${doc.id}: $e');
-            }
-          }
+          final notifications = _deduplicateNotifications(snapshot.docs);
           debugPrint('📱 Supervisor notifications loaded: ${notifications.length}');
           return notifications;
         });
@@ -3606,7 +3676,9 @@ Future<void> saveNotification(NotificationModel notification) async {
             .where('recipientId', isEqualTo: currentUser.uid)
             .where('isRead', isEqualTo: false)
             .get();
-        totalCount += notificationsSnapshot.docs.length;
+        final uniqueNotificationCount =
+            _deduplicateNotifications(notificationsSnapshot.docs).length;
+        totalCount += uniqueNotificationCount;
 
         // 2. طلبات الغياب المعلقة
         final absencesSnapshot = await _firestore
@@ -3623,7 +3695,7 @@ Future<void> saveNotification(NotificationModel notification) async {
         totalCount += complaintsSnapshot.docs.length;
 
         debugPrint('🔔 Total admin notifications count for ${currentUser.uid}: $totalCount');
-        debugPrint('   - General notifications: ${notificationsSnapshot.docs.length}');
+        debugPrint('   - General notifications: $uniqueNotificationCount');
         debugPrint('   - Pending absences: ${absencesSnapshot.docs.length}');
         debugPrint('   - Pending complaints: ${complaintsSnapshot.docs.length}');
 
@@ -3996,32 +4068,7 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
         .limit(50) // تقليل العدد لتحسين الأداء
         .snapshots()
         .map((snapshot) {
-          final notifications = <NotificationModel>[];
-          final seenIds = <String>{};
-          final seenContent = <String>{};
-
-          for (final doc in snapshot.docs) {
-            try {
-              final data = Map<String, dynamic>.from(doc.data());
-              // إضافة معرف الوثيقة للتأكد من التحديث الصحيح
-              data['id'] = doc.id;
-
-              // التحقق من عدم التكرار
-              final contentKey = '${data['title']}_${data['body']}';
-              if (seenIds.contains(doc.id) || seenContent.contains(contentKey)) {
-                debugPrint('⚠️ Skipping duplicate notification: ${data['title']}');
-                continue;
-              }
-
-              final notification = NotificationModel.fromMap(data);
-              notifications.add(notification);
-              seenIds.add(doc.id);
-              seenContent.add(contentKey);
-
-            } catch (e) {
-              debugPrint('❌ Error parsing admin notification ${doc.id}: $e');
-            }
-          }
+          final notifications = _deduplicateNotifications(snapshot.docs);
           debugPrint('📱 Admin notifications loaded: ${notifications.length}');
           return notifications;
         });
@@ -4565,8 +4612,9 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
         .where('isRead', isEqualTo: false)
         .snapshots()
         .map((snapshot) {
-      debugPrint('🔔 Notification count snapshot: ${snapshot.docs.length} unread');
-      return snapshot.docs.length;
+      final count = _deduplicateNotifications(snapshot.docs).length;
+      debugPrint('🔔 Notification count snapshot: $count unread');
+      return count;
     });
   }
 
@@ -4580,6 +4628,7 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
       debugPrint('✅ Notification $notificationId marked as read');
     } catch (e) {
       debugPrint('❌ Error marking notification as read: $e');
+      rethrow;
     }
   }
 
@@ -4667,7 +4716,11 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
-          .map((doc) => NotificationModel.fromMap(doc.data()))
+          .map((doc) {
+            final data = Map<String, dynamic>.from(doc.data());
+            data['id'] = doc.id;
+            return NotificationModel.fromMap(data);
+          })
           .toList();
     });
   }
@@ -4695,28 +4748,7 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
         .limit(50)
         .snapshots()
         .map((snapshot) {
-          final notifications = <NotificationModel>[];
-          final seenIds = <String>{};
-
-          for (final doc in snapshot.docs) {
-            try {
-              final data = Map<String, dynamic>.from(doc.data());
-              data['id'] = doc.id;
-
-              if (seenIds.contains(doc.id)) {
-                debugPrint('⚠️ Skipping duplicate notification: ${data['title']}');
-                continue;
-              }
-
-              final notification = NotificationModel.fromMap(data);
-              notifications.add(notification);
-              seenIds.add(doc.id);
-
-            } catch (e) {
-              debugPrint('❌ Error parsing parent notification ${doc.id}: $e');
-            }
-          }
-          
+          final notifications = _deduplicateNotifications(snapshot.docs);
           debugPrint('📧 Parent notifications loaded: ${notifications.length}');
           return notifications;
         });
@@ -4732,10 +4764,48 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
         .where('isRead', isEqualTo: false)
         .snapshots()
         .map((snapshot) {
-          final count = snapshot.docs.length;
+          final count = _deduplicateNotifications(snapshot.docs).length;
           debugPrint('🔔 Parent unread notifications count: $count');
           return count;
         });
+  }
+
+  /// يحافظ على أول سجل من الإشعارات المتطابقة خلال دقيقتين؛ ينطبق على كل
+  /// الأدوار لكي لا تظهر السجلات القديمة المكررة في أي حساب.
+  List<NotificationModel> _deduplicateNotifications(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> documents,
+  ) {
+    final notifications = <NotificationModel>[];
+    final recentlySeen = <String, DateTime>{};
+
+    for (final doc in documents) {
+      try {
+        final data = Map<String, dynamic>.from(doc.data());
+        data['id'] = doc.id;
+        final notification = NotificationModel.fromMap(data);
+        final fingerprint = [
+          notification.recipientId,
+          notification.type.name,
+          notification.title.trim(),
+          notification.body.trim(),
+        ].join('|');
+        final previousTimestamp = recentlySeen[fingerprint];
+
+        if (previousTimestamp != null &&
+            previousTimestamp.difference(notification.timestamp).abs() <
+                const Duration(minutes: 2)) {
+          debugPrint('⚠️ Skipping duplicate notification: ${notification.title}');
+          continue;
+        }
+
+        notifications.add(notification);
+        recentlySeen[fingerprint] = notification.timestamp;
+      } catch (e) {
+        debugPrint('❌ Error parsing notification ${doc.id}: $e');
+      }
+    }
+
+    return notifications;
   }
 
 }

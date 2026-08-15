@@ -4,6 +4,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
+const { CHANNELS, sendFcmNotification } = require('./utils/sendNotification');
 
 // إعداد Express server
 const app = express();
@@ -613,88 +614,44 @@ fcmQueueRef.onSnapshot(async (snapshot) => {
         
         const fcmToken = userData.fcmToken;
         
-        if (!fcmToken) {
-          console.log(`❌ FCM Token غير موجود للمستخدم`);
-          console.log('💡 المستخدم يحتاج لتسجيل الدخول مرة أخرى');
+        // ملحوظة: الحفظ في notifications (in-app) بيحصل جوه sendFcmNotification
+        // نفسها، سواء التوكن موجود أو لأ - فمفيش داعي نكرره هنا زي قبل كده
+        const result = await sendFcmNotification(admin, db, {
+          recipientId: queueItem.recipientId,
+          fcmToken,
+          title: queueItem.title || 'إشعار جديد',
+          body: queueItem.body || '',
+          type: queueItem.data?.type || 'general',
+          channelId: queueItem.data?.channelId || CHANNELS.GENERAL,
+          data: queueItem.data || {},
+          priority: queueItem.priority === 'high' ? 'high' : 'normal',
+        });
+
+        if (result.sent) {
+          console.log('✅ ✅ ✅ إشعار مرسل بنجاح! ✅ ✅ ✅');
+          console.log('📨 Message ID:', result.messageId);
+          await db.collection('fcm_queue').doc(queueId).update({
+            status: 'sent',
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            messageId: result.messageId
+          });
+          notificationsSent++;
+        } else {
+          console.log(`⚠️ لم يتم إرسال push (${result.reason}) - لكن تم حفظ نسخة in-app`);
           await db.collection('fcm_queue').doc(queueId).update({
             status: 'failed',
-            error: 'FCM token not found',
+            error: result.reason,
             failedAt: admin.firestore.FieldValue.serverTimestamp()
           });
           notificationsFailed++;
-          return;
         }
-        
-        console.log('✅ FCM Token موجود:', fcmToken.substring(0, 30) + '...');
-        
-        // إعداد رسالة FCM
-        console.log('📤 إعداد رسالة FCM...');
-        const message = {
-          token: fcmToken,
-          notification: {
-            title: queueItem.title || 'إشعار جديد',
-            body: queueItem.body || '',
-          },
-          data: {
-            ...queueItem.data,
-            recipientId: queueItem.recipientId,
-            click_action: 'FLUTTER_NOTIFICATION_CLICK',
-            timestamp: new Date().toISOString()
-          },
-          android: {
-            priority: queueItem.priority === 'high' ? 'high' : 'normal',
-            notification: {
-              channelId: queueItem.data?.channelId || 'mybus_notifications',
-              sound: 'default',
-              priority: 'high',
-              defaultSound: true,
-              defaultVibrateTimings: true,
-              defaultLightSettings: true
-            }
-          },
-          apns: {
-            payload: {
-              aps: {
-                sound: 'default',
-                badge: 1,
-                contentAvailable: true
-              }
-            }
-          },
-          webpush: {
-            notification: {
-              title: queueItem.title,
-              body: queueItem.body,
-              icon: '/icons/icon-192x192.png',
-              badge: '/icons/badge-72x72.png'
-            },
-            fcmOptions: {
-              link: '/'
-            }
-          }
-        };
-        
-        // إرسال الإشعار
-        console.log('🚀 إرسال الإشعار عبر FCM...');
-        const response = await messaging.send(message);
-        console.log('✅ ✅ ✅ إشعار مرسل بنجاح! ✅ ✅ ✅');
-        console.log('📨 Message ID:', response);
-        
-        // تحديث الحالة إلى sent
-        await db.collection('fcm_queue').doc(queueId).update({
-          status: 'sent',
-          sentAt: admin.firestore.FieldValue.serverTimestamp(),
-          messageId: response
-        });
-        
-        notificationsSent++;
+
         console.log(`\n📊 إحصائيات: ${notificationsSent} مرسل | ${notificationsFailed} فشل\n`);
         
       } catch (error) {
         console.error('❌ ❌ ❌ خطأ في إرسال الإشعار:');
         console.error('📛 Error:', error.message);
         console.error('📛 Code:', error.code);
-        console.error('📛 Details:', error.details);
         
         // تحديث الحالة إلى failed
         await db.collection('fcm_queue').doc(queueId).update({
@@ -714,158 +671,15 @@ fcmQueueRef.onSnapshot(async (snapshot) => {
 });
 
 // ============================================
-// 1️⃣ مراقبة الرحلات الجديدة (Trips)
+// 1️⃣ مراقبة الرحلات (Trips) - تم إلغاؤها عن قصد
 // ============================================
-const tripsRef = db.collection('trips');
-
-console.log('👀 بدء مراقبة trips...');
-
-tripsRef.onSnapshot(async (snapshot) => {
-  snapshot.docChanges().forEach(async (change) => {
-    if (change.type === 'added') {
-      const trip = change.doc.data();
-      const tripId = change.doc.id;
-      
-      console.log(`\n🚌 رحلة جديدة: ${tripId}`);
-      console.log(`   الطالب: ${trip.studentName}`);
-      console.log(`   الإجراء: ${trip.action}`);
-      
-      try {
-        // جلب بيانات الطالب للحصول على parentId
-        const studentDoc = await db.collection('students').doc(trip.studentId).get();
-        
-        if (!studentDoc.exists) {
-          console.log(`   ⚠️ الطالب غير موجود: ${trip.studentId}`);
-          return;
-        }
-        
-        const student = studentDoc.data();
-        const parentId = student.parentId;
-        
-        if (!parentId) {
-          console.log(`   ⚠️ ولي الأمر غير مسجل للطالب`);
-          return;
-        }
-        
-        // جلب FCM Token لولي الأمر
-        const parentDoc = await db.collection('users').doc(parentId).get();
-        
-        if (!parentDoc.exists) {
-          console.log(`   ⚠️ ولي الأمر غير موجود: ${parentId}`);
-          return;
-        }
-        
-        const parent = parentDoc.data();
-        const fcmToken = parent.fcmToken;
-        
-        if (!fcmToken) {
-          console.log(`   ⚠️ FCM Token غير موجود لولي الأمر`);
-          return;
-        }
-        
-        // تحديد نص الإشعار بناءً على نوع الإجراء
-        let notificationTitle = '';
-        let notificationBody = '';
-        let notificationType = 'general';
-        
-        switch (trip.action) {
-          case 'boardBusToSchool':
-            notificationTitle = '🚌 ركب الباص';
-            notificationBody = `${trip.studentName} ركب الباص متجهاً إلى المدرسة`;
-            notificationType = 'studentBoarded';
-            break;
-          case 'arriveAtSchool':
-            notificationTitle = '🏫 وصل المدرسة';
-            notificationBody = `${trip.studentName} وصل إلى المدرسة بأمان`;
-            notificationType = 'tripEnded';
-            break;
-          case 'boardBusToHome':
-            notificationTitle = '🚌 ركب الباص';
-            notificationBody = `${trip.studentName} ركب الباص متجهاً إلى المنزل`;
-            notificationType = 'studentBoarded';
-            break;
-          case 'arriveAtHome':
-            notificationTitle = '🏠 وصل المنزل';
-            notificationBody = `${trip.studentName} وصل إلى المنزل بأمان`;
-            notificationType = 'tripEnded';
-            break;
-          case 'boardBus':
-            notificationTitle = '🚌 ركب الباص';
-            notificationBody = `${trip.studentName} ركب الباص`;
-            notificationType = 'studentBoarded';
-            break;
-          case 'leaveBus':
-            notificationTitle = '🚶 نزل من الباص';
-            notificationBody = `${trip.studentName} نزل من الباص`;
-            notificationType = 'studentLeft';
-            break;
-          default:
-            notificationTitle = '📢 تحديث رحلة';
-            notificationBody = `تحديث جديد لرحلة ${trip.studentName}`;
-        }
-        
-        // إرسال الإشعار عبر FCM
-        const message = {
-          token: fcmToken,
-          notification: {
-            title: notificationTitle,
-            body: notificationBody,
-          },
-          data: {
-            tripId: tripId,
-            studentId: trip.studentId,
-            studentName: trip.studentName,
-            action: trip.action,
-            type: notificationType,
-            timestamp: new Date().toISOString(),
-            click_action: 'FLUTTER_NOTIFICATION_CLICK'
-          },
-          android: {
-            priority: 'high',
-            notification: {
-              channelId: 'mybus_notifications',
-              sound: 'default',
-              priority: 'high'
-            }
-          },
-          apns: {
-            payload: {
-              aps: {
-                sound: 'default',
-                badge: 1
-              }
-            }
-          }
-        };
-        
-        const response = await messaging.send(message);
-        console.log(`   ✅ إشعار رحلة مرسل: ${response}`);
-        
-        // حفظ الإشعار في Firestore
-        await db.collection('notifications').add({
-          id: db.collection('notifications').doc().id,
-          title: notificationTitle,
-          body: notificationBody,
-          recipientId: parentId,
-          studentId: trip.studentId,
-          studentName: trip.studentName,
-          type: notificationType,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          isRead: false,
-          data: {
-            tripId: tripId,
-            action: trip.action
-          }
-        });
-        
-      } catch (error) {
-        console.error(`   ❌ خطأ في إرسال إشعار الرحلة:`, error.message);
-      }
-    }
-  });
-}, (error) => {
-  console.error('❌ خطأ في مراقبة الرحلات:', error);
-});
+// ⚠️ هذا الـ listener اتشال لأنه كان بيسبب إشعارات مكررة.
+// التطبيق (Flutter) بيبعت إشعار "ركب الباص/وصل المدرسة" مباشرة
+// عن طريق fcm_queue من خلال SimpleFCMService، ومفيش أي مكان في
+// التطبيق بينادي addTrip() أصلاً - فالـ listener ده كان شغال
+// بدون فايدة أو كان هيسبب تكرار لو حد رجّع استخدام addTrip() تاني.
+// لو حبينا نرجعه مستقبلاً، لازم يبعت عن طريق fcm_queue بدل
+// ما يبني ويبعت رسالة FCM لوحده.
 
 // ============================================
 // 2️⃣ مراقبة طلبات الغياب (Absences)
@@ -890,32 +704,24 @@ absencesRef.onSnapshot(async (snapshot) => {
         
         for (const adminDoc of admins.docs) {
           const adminUser = adminDoc.data();
-          const fcmToken = adminUser.fcmToken;
           
-          if (fcmToken) {
-            const message = {
-              token: fcmToken,
-              notification: {
-                title: '📝 طلب غياب جديد',
-                body: `طلب غياب جديد من ${absence.studentName || 'طالب'}`,
-              },
-              data: {
-                absenceId: absenceId,
-                type: 'absenceRequested',
-                studentId: absence.studentId || '',
-                click_action: 'FLUTTER_NOTIFICATION_CLICK'
-              },
-              android: {
-                priority: 'high',
-                notification: {
-                  channelId: 'mybus_notifications',
-                  sound: 'default'
-                }
-              }
-            };
-            
-            await messaging.send(message);
+          const result = await sendFcmNotification(admin, db, {
+            recipientId: adminDoc.id,
+            fcmToken: adminUser.fcmToken,
+            title: '📝 طلب غياب جديد',
+            body: `طلب غياب جديد من ${absence.studentName || 'طالب'}`,
+            type: 'absenceRequested',
+            channelId: CHANNELS.GENERAL,
+            data: {
+              absenceId,
+              studentId: absence.studentId || '',
+            },
+          });
+
+          if (result.sent) {
             console.log(`   ✅ إشعار غياب مرسل للمسؤول: ${adminDoc.id}`);
+          } else {
+            console.log(`   ⚠️ لم يتم إرسال push للمسؤول ${adminDoc.id} (${result.reason})`);
           }
         }
         
@@ -939,33 +745,25 @@ absencesRef.onSnapshot(async (snapshot) => {
           
           if (parentDoc.exists) {
             const parent = parentDoc.data();
-            const fcmToken = parent.fcmToken;
-            
-            if (fcmToken) {
-              const isApproved = absence.status === 'approved';
-              const message = {
-                token: fcmToken,
-                notification: {
-                  title: isApproved ? '✅ تمت الموافقة على الغياب' : '❌ تم رفض الغياب',
-                  body: `طلب غياب ${absence.studentName || 'طالبك'} تم ${isApproved ? 'قبوله' : 'رفضه'}`,
-                },
-                data: {
-                  absenceId: change.doc.id,
-                  type: isApproved ? 'absenceApproved' : 'absenceRejected',
-                  studentId: absence.studentId || '',
-                  click_action: 'FLUTTER_NOTIFICATION_CLICK'
-                },
-                android: {
-                  priority: 'high',
-                  notification: {
-                    channelId: 'mybus_notifications',
-                    sound: 'default'
-                  }
-                }
-              };
-              
-              await messaging.send(message);
+            const isApproved = absence.status === 'approved';
+
+            const result = await sendFcmNotification(admin, db, {
+              recipientId: absence.parentId,
+              fcmToken: parent.fcmToken,
+              title: isApproved ? '✅ تمت الموافقة على الغياب' : '❌ تم رفض الغياب',
+              body: `طلب غياب ${absence.studentName || 'طالبك'} تم ${isApproved ? 'قبوله' : 'رفضه'}`,
+              type: isApproved ? 'absenceApproved' : 'absenceRejected',
+              channelId: CHANNELS.GENERAL,
+              data: {
+                absenceId: change.doc.id,
+                studentId: absence.studentId || '',
+              },
+            });
+
+            if (result.sent) {
               console.log(`   ✅ إشعار تحديث غياب مرسل لولي الأمر`);
+            } else {
+              console.log(`   ⚠️ لم يتم إرسال push لولي الأمر (${result.reason})`);
             }
           }
         } catch (error) {
@@ -1017,88 +815,34 @@ complaintsRef.onSnapshot(async (snapshot) => {
         
         for (const adminDoc of admins.docs) {
           const adminUser = adminDoc.data();
-          const fcmToken = adminUser.fcmToken;
           
           console.log(`   📤 محاولة إرسال للإدمن: ${adminUser.name || adminUser.email || adminDoc.id}`);
-          
-          if (!fcmToken) {
-            console.log(`   ⚠️ FCM Token غير موجود`);
-            failedCount++;
-            continue;
-          }
-          
-          try {
-            const message = {
-              token: fcmToken,
-              notification: {
-                title: '🚨 شكوى جديدة من ولي أمر',
-                body: `${complaint.parentName || 'ولي أمر'}: ${complaint.title || 'شكوى جديدة'}`,
-              },
-              data: {
-                complaintId: complaintId,
-                type: 'complaintSubmitted',
-                parentId: complaint.parentId || '',
-                parentName: complaint.parentName || '',
-                title: complaint.title || '',
-                description: complaint.description || '',
-                priority: complaint.priority || 'normal',
-                timestamp: new Date().toISOString(),
-                click_action: 'FLUTTER_NOTIFICATION_CLICK',
-                navigationRoute: '/admin/complaints',
-                navigationParams: JSON.stringify({
-                  complaintId: complaintId,
-                  openDetails: true
-                })
-              },
-              android: {
-                priority: 'high',
-                notification: {
-                  channelId: 'complaints_channel',
-                  sound: 'notification_sound',
-                  priority: 'high',
-                  defaultSound: true,
-                  defaultVibrateTimings: true,
-                  icon: '@mipmap/ic_launcher',
-                  color: '#FF6B6B'
-                }
-              },
-              apns: {
-                payload: {
-                  aps: {
-                    sound: 'notification_sound.mp3',
-                    badge: 1,
-                    contentAvailable: true,
-                    category: 'COMPLAINT_CATEGORY'
-                  }
-                }
-              }
-            };
-            
-            const response = await messaging.send(message);
-            console.log(`   ✅ إشعار شكوى مرسل للإدمن بنجاح!`);
-            console.log(`   📨 Message ID: ${response}`);
+
+          const result = await sendFcmNotification(admin, db, {
+            recipientId: adminDoc.id,
+            fcmToken: adminUser.fcmToken,
+            title: '🚨 شكوى جديدة من ولي أمر',
+            body: `${complaint.parentName || 'ولي أمر'}: ${complaint.title || 'شكوى جديدة'}`,
+            type: 'complaintSubmitted',
+            channelId: CHANNELS.COMPLAINTS,
+            color: '#FF6B6B',
+            data: {
+              complaintId,
+              parentId: complaint.parentId || '',
+              parentName: complaint.parentName || '',
+              complaintTitle: complaint.title || '',
+              description: complaint.description || '',
+              priority: complaint.priority || 'normal',
+              navigationRoute: '/admin/complaints',
+              navigationParams: JSON.stringify({ complaintId, openDetails: true }),
+            },
+          });
+
+          if (result.sent) {
+            console.log(`   ✅ إشعار شكوى مرسل للإدمن بنجاح! Message ID: ${result.messageId}`);
             sentCount++;
-            
-            // حفظ الإشعار في Firestore للإدمن
-            await db.collection('notifications').add({
-              id: db.collection('notifications').doc().id,
-              title: '🚨 شكوى جديدة من ولي أمر',
-              body: `${complaint.parentName || 'ولي أمر'}: ${complaint.title || 'شكوى جديدة'}`,
-              recipientId: adminDoc.id,
-              type: 'complaintSubmitted',
-              timestamp: admin.firestore.FieldValue.serverTimestamp(),
-              isRead: false,
-              data: {
-                complaintId: complaintId,
-                parentId: complaint.parentId,
-                parentName: complaint.parentName,
-                complaintTitle: complaint.title,
-                priority: complaint.priority
-              }
-            });
-            
-          } catch (sendError) {
-            console.error(`   ❌ فشل إرسال الإشعار: ${sendError.message}`);
+          } else {
+            console.log(`   ⚠️ لم يتم إرسال push (${result.reason})`);
             failedCount++;
           }
         }
@@ -1168,17 +912,7 @@ complaintsRef.onSnapshot(async (snapshot) => {
           }
           
           const parent = parentDoc.data();
-          const fcmToken = parent.fcmToken;
-          
           console.log(`✅ ولي الأمر موجود: ${parent.name || parent.email}`);
-          
-          if (!fcmToken) {
-            console.log(`   ⚠️ FCM Token غير موجود لولي الأمر`);
-            console.log(`   💡 ولي الأمر يحتاج لتسجيل الدخول مرة أخرى`);
-            return;
-          }
-          
-          console.log(`✅ FCM Token موجود: ${fcmToken.substring(0, 30)}...`);
           
           // تحديد نص الإشعار
           let notificationTitle = '';
@@ -1208,81 +942,34 @@ complaintsRef.onSnapshot(async (snapshot) => {
             }
           }
           
-          console.log(`📤 إعداد رسالة FCM...`);
+          console.log(`📤 إرسال إشعار موحّد...`);
           console.log(`   📌 العنوان: ${notificationTitle}`);
           console.log(`   💬 المحتوى: ${notificationBody}`);
-          
-          const message = {
-            token: fcmToken,
-            notification: {
-              title: notificationTitle,
-              body: notificationBody,
-            },
+
+          const result = await sendFcmNotification(admin, db, {
+            recipientId: parentId,
+            fcmToken: parent.fcmToken,
+            title: notificationTitle,
+            body: notificationBody,
+            type: 'complaintResponded',
+            channelId: CHANNELS.COMPLAINTS,
+            color: '#4CAF50',
             data: {
-              complaintId: complaintId,
-              type: 'complaintResponded',
+              complaintId,
               complaintTitle: newComplaint.title || '',
               description: newComplaint.description || '',
               response: newComplaint.adminResponse || '',
               status: newComplaint.status || '',
-              timestamp: new Date().toISOString(),
-              click_action: 'FLUTTER_NOTIFICATION_CLICK',
               navigationRoute: '/parent/complaints',
-              navigationParams: JSON.stringify({
-                complaintId: complaintId,
-                openDetails: true
-              })
+              navigationParams: JSON.stringify({ complaintId, openDetails: true }),
             },
-            android: {
-              priority: 'high',
-              notification: {
-                channelId: 'complaints_channel',
-                sound: 'notification_sound',
-                priority: 'high',
-                defaultSound: true,
-                defaultVibrateTimings: true,
-                icon: '@mipmap/ic_launcher',
-                color: '#4CAF50'
-              }
-            },
-            apns: {
-              payload: {
-                aps: {
-                  sound: 'notification_sound.mp3',
-                  badge: 1,
-                  contentAvailable: true,
-                  category: 'COMPLAINT_RESPONSE_CATEGORY'
-                }
-              }
-            }
-          };
-          
-          console.log(`🚀 إرسال الإشعار عبر FCM...`);
-          const response = await messaging.send(message);
-          console.log(`\n✅ ✅ ✅ إشعار رد الشكوى مرسل بنجاح! ✅ ✅ ✅`);
-          console.log(`📨 Message ID: ${response}`);
-          console.log(`👤 المستلم: ${parent.name || parent.email}`);
-          console.log(`📱 إلى: ${fcmToken.substring(0, 30)}...\n`);
-          
-          // حفظ الإشعار في Firestore لولي الأمر
-          await db.collection('notifications').add({
-            id: db.collection('notifications').doc().id,
-            title: notificationTitle,
-            body: notificationBody,
-            recipientId: parentId,
-            type: 'complaintResponded',
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            isRead: false,
-            data: {
-              complaintId: complaintId,
-              complaintTitle: newComplaint.title,
-              description: newComplaint.description,
-              response: newComplaint.adminResponse,
-              status: newComplaint.status
-            }
           });
-          
-          console.log(`💾 تم حفظ الإشعار في Firestore\n`);
+
+          if (result.sent) {
+            console.log(`\n✅ ✅ ✅ إشعار رد الشكوى مرسل بنجاح! Message ID: ${result.messageId} ✅ ✅ ✅`);
+          } else {
+            console.log(`   ⚠️ لم يتم إرسال push (${result.reason}) - تم حفظ نسخة in-app`);
+          }
           
         } catch (error) {
           console.error(`\n❌ خطأ في إرسال إشعار رد الشكوى:`);
@@ -1342,7 +1029,7 @@ studentsRef.onSnapshot(async (snapshot) => {
         // ====== 2️⃣ تتبع تغيير البيانات الأخرى (من الإدمن) ======
         const changedFields = {};
         const importantFields = [
-          'name', 'schoolName', 'grade', 'busId', 
+          'name', 'schoolName', 'grade', 
           'parentName', 'parentPhone', 'address', 'notes'
         ];
         
@@ -1393,6 +1080,13 @@ studentsRef.onSnapshot(async (snapshot) => {
 });
 
 // ====== دالة معالجة تغيير الحالة ======
+// ⚠️ ملحوظة مهمة: التطبيق نفسه (SimpleFCMService في Flutter) بيبعت
+// إشعار push فعلي عند تغيير حالة الطالب من QR Scanner مباشرة عن طريق
+// fcm_queue. الدالة دي هنا بترصد نفس التغيير من ناحية الباك إند
+// (Firestore listener) كـ fallback/log بس، وبتحفظ نسخة in-app فقط
+// من غير ما تبعت push تاني، عشان منمنعش تكرار الإشعار على ولي الأمر.
+// لو حبينا يوم ما التطبيق يبقى مش هو مصدر الإشعار (مثلاً تحديث من
+// لوحة تحكم الأدمن مباشرة)، وقتها نستخدم sendFcmNotification هنا.
 async function handleStatusChange(studentId, studentData, oldStatus, newStatus) {
   try {
     const parentId = studentData.parentId;
@@ -1408,77 +1102,12 @@ async function handleStatusChange(studentId, studentData, oldStatus, newStatus) 
       console.log(`   ⚠️ ولي الأمر غير موجود: ${parentId}`);
       return;
     }
-    
-    const parent = parentDoc.data();
-    const fcmToken = parent.fcmToken;
-    
-    if (!fcmToken) {
-      console.log(`   ⚠️ FCM Token غير موجود لولي الأمر`);
-      console.log(`   💡 سيتم حفظ الإشعار في Firestore - سيظهر عند فتح التطبيق`);
-      
-      // حفظ الإشعار في Firestore - سيظهر داخل التطبيق فقط
-      await db.collection('notifications').add({
-        id: db.collection('notifications').doc().id,
-        title: getStatusChangeTitle(studentData.name, newStatus),
-        body: getStatusChangeBody(studentData.name, newStatus),
-        recipientId: parentId,
-        studentId: studentId,
-        studentName: studentData.name,
-        type: 'studentStatusChanged',
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        isRead: false,
-        data: {
-          oldStatus: oldStatus,
-          newStatus: newStatus
-        }
-      });
-      
-      console.log(`   💾 تم حفظ الإشعار - سيظهر داخل التطبيق`);
-      return;
-    }
-    
-    // تحديد نص الإشعار بناءً على الحالة الجديدة
+
     const notificationTitle = getStatusChangeTitle(studentData.name, newStatus);
     const notificationBody = getStatusChangeBody(studentData.name, newStatus);
-    
-    // إرسال الإشعار عبر FCM
-    const message = {
-      token: fcmToken,
-      notification: {
-        title: notificationTitle,
-        body: notificationBody,
-      },
-      data: {
-        studentId: studentId,
-        studentName: studentData.name,
-        oldStatus: oldStatus,
-        newStatus: newStatus,
-        type: 'studentStatusChanged',
-        timestamp: new Date().toISOString(),
-        click_action: 'FLUTTER_NOTIFICATION_CLICK'
-      },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'student_notifications',
-          sound: 'default',
-          priority: 'high'
-        }
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-            badge: 1
-          }
-        }
-      }
-    };
-    
-    const response = await messaging.send(message);
-    console.log(`   ✅ إشعار تغيير حالة مرسل: ${response}`);
-    
-    // حفظ الإشعار في Firestore
+
+    // حفظ نسخة in-app فقط (بدون push) لمنع التكرار مع إشعار
+    // fcm_queue اللي التطبيق بعته أصلاً لنفس الحدث
     await db.collection('notifications').add({
       id: db.collection('notifications').doc().id,
       title: notificationTitle,
@@ -1519,118 +1148,34 @@ async function handleDataUpdate(studentId, studentData, changedFields) {
     }
     
     const parent = parentDoc.data();
-    
     console.log(`✅ ولي الأمر موجود: ${parent.name || parent.email}`);
     
-    const fcmToken = parent.fcmToken;
-    
-    if (!fcmToken) {
-      console.log(`   ⚠️ FCM Token غير موجود لولي الأمر`);
-      console.log(`   💡 سيتم حفظ الإشعار في Firestore - سيظهر عند فتح التطبيق`);
-      
-      // حفظ الإشعار في Firestore - سيظهر داخل التطبيق فقط
-      const changesText = formatChangedFields(changedFields);
-      const notificationTitle = '📝 تم تحديث بيانات الطالب';
-      const notificationBody = `تم تحديث بيانات ${studentData.name} من قبل الإدارة\n\n${changesText}`;
-      
-      await db.collection('notifications').add({
-        id: db.collection('notifications').doc().id,
-        title: notificationTitle,
-        body: notificationBody,
-        recipientId: parentId,
-        studentId: studentId,
-        studentName: studentData.name,
-        type: 'student_data_update',
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        isRead: false,
-        data: {
-          changedFields: changedFields
-        }
-      });
-      
-      console.log(`   💾 تم حفظ الإشعار - سيظهر داخل التطبيق`);
-      return;
-    }
-    
-    console.log(`✅ FCM Token موجود: ${fcmToken.substring(0, 30)}...`);
-    console.log(`✅ سيتم إرسال إشعار FCM خارج التطبيق`);
-    
-    // إنشاء نص التغييرات
     const changesText = formatChangedFields(changedFields);
-    
     const notificationTitle = '📝 تم تحديث بيانات الطالب';
     const notificationBody = `تم تحديث بيانات ${studentData.name} من قبل الإدارة\n\n${changesText}`;
-    
-    console.log(`📤 إعداد رسالة FCM...`);
-    console.log(`   📌 العنوان: ${notificationTitle}`);
-    console.log(`   💬 المحتوى (أول 100 حرف): ${notificationBody.substring(0, 100)}...`);
-    
-    // إرسال الإشعار عبر FCM
-    const message = {
-      token: fcmToken,
-      notification: {
-        title: notificationTitle,
-        body: notificationBody,
-      },
-      data: {
-        studentId: studentId,
-        studentName: studentData.name,
-        type: 'student_data_update',
-        changedFields: JSON.stringify(changedFields),
-        timestamp: new Date().toISOString(),
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        navigationRoute: '/parent/students',
-        navigationParams: JSON.stringify({
-          studentId: studentId,
-          openDetails: true
-        })
-      },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'student_notifications',
-          sound: 'notification_sound',
-          priority: 'high',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          icon: '@mipmap/ic_launcher',
-          color: '#2196F3'
-        }
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'notification_sound.mp3',
-            badge: 1,
-            contentAvailable: true,
-            category: 'STUDENT_UPDATE_CATEGORY'
-          }
-        }
-      }
-    };
-    
-    console.log(`🚀 إرسال الإشعار عبر FCM...`);
-    const response = await messaging.send(message);
-    console.log(`\n✅ ✅ ✅ إشعار تحديث البيانات مرسل بنجاح! ✅ ✅ ✅`);
-    console.log(`📨 Message ID: ${response}`);
-    console.log(`👤 المستلم: ${parent.name || parent.email}`);
-    console.log(`📱 إلى: ${fcmToken.substring(0, 30)}...\n`);
-    
-    // حفظ الإشعار في Firestore
-    await db.collection('notifications').add({
-      id: db.collection('notifications').doc().id,
+
+    const result = await sendFcmNotification(admin, db, {
+      recipientId: parentId,
+      fcmToken: parent.fcmToken,
       title: notificationTitle,
       body: notificationBody,
-      recipientId: parentId,
-      studentId: studentId,
-      studentName: studentData.name,
       type: 'student_data_update',
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      isRead: false,
+      channelId: CHANNELS.STUDENT,
+      color: '#2196F3',
       data: {
-        changedFields: changedFields
-      }
+        studentId,
+        studentName: studentData.name,
+        changedFields: JSON.stringify(changedFields),
+        navigationRoute: '/parent/students',
+        navigationParams: JSON.stringify({ studentId, openDetails: true }),
+      },
     });
+
+    if (result.sent) {
+      console.log(`   ✅ إشعار تحديث بيانات مرسل بنجاح! Message ID: ${result.messageId}`);
+    } else {
+      console.log(`   ⚠️ لم يتم إرسال push (${result.reason}) - تم حفظ نسخة in-app`);
+    }
     
     console.log(`💾 تم حفظ الإشعار في Firestore\n`);
     
@@ -1700,7 +1245,6 @@ function formatChangedFields(changedFields) {
     'name': 'اسم الطالب',
     'schoolName': 'اسم المدرسة',
     'grade': 'الصف الدراسي',
-    'busId': 'الباص المخصص',
     'parentName': 'اسم ولي الأمر',
     'parentPhone': 'رقم هاتف ولي الأمر',
     'address': 'العنوان',

@@ -411,6 +411,15 @@ function getStatusBadgeClass(status) {
 }
 
 function formatDate(date) {
+    if (!date) return '-';
+    // Firestore Timestamp
+    if (typeof date.toDate === 'function') {
+        date = date.toDate();
+    } else if (!(date instanceof Date)) {
+        // String or number (e.g. Firebase Auth metadata.creationTime)
+        date = new Date(date);
+    }
+    if (isNaN(date.getTime())) return '-';
     return date.toLocaleDateString('ar-SA', {
         year: 'numeric',
         month: '2-digit',
@@ -419,6 +428,13 @@ function formatDate(date) {
 }
 
 function formatTime(date) {
+    if (!date) return '-';
+    if (typeof date.toDate === 'function') {
+        date = date.toDate();
+    } else if (!(date instanceof Date)) {
+        date = new Date(date);
+    }
+    if (isNaN(date.getTime())) return '-';
     return date.toLocaleTimeString('ar-SA', {
         hour: '2-digit',
         minute: '2-digit'

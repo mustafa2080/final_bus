@@ -389,6 +389,7 @@ class NotificationService {
       debugPrint('✅ Notification marked as read: $notificationId');
     } catch (e) {
       debugPrint('❌ Error marking notification as read: $e');
+      rethrow;
     }
   }
 
@@ -662,12 +663,18 @@ class NotificationService {
         channelId: 'bus_notifications',
       );
 
-      await _saveNotification(
+      await _saveNotificationWithData(
         title: title,
         body: body,
         type: NotificationType.studentBoarded,
         recipientId: parentId,
         studentName: studentName,
+        data: {
+          'studentId': studentId,
+          'busNumber': busNumber,
+          if (location != null) 'location': location,
+          if (busId != null) 'busId': busId,
+        },
       );
       
       debugPrint('✅ Student boarded notification sent');
@@ -705,10 +712,16 @@ class NotificationService {
         channelId: 'bus_notifications',
       );
 
-      await _saveNotification(
+      await _saveNotificationWithData(
         title: title,
         body: body,
         type: NotificationType.studentLeft,
+        data: {
+          'studentId': studentId,
+          'busNumber': busNumber,
+          if (location != null) 'location': location,
+          if (busId != null) 'busId': busId,
+        },
         recipientId: parentId,
         studentName: studentName,
       );
@@ -1119,22 +1132,10 @@ class NotificationService {
     required String recipientId,
     String? studentName,
   }) async {
-    try {
-      await _firestore.collection('notifications').add({
-        'title': title,
-        'body': body,
-        'message': body,
-        'type': type.toString().split('.').last,
-        'recipientId': recipientId,
-        'isRead': false,
-        'timestamp': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        if (studentName != null) 'studentName': studentName,
-      });
-      debugPrint('✅ Notification saved to Firestore');
-    } catch (e) {
-      debugPrint('❌ Error saving notification: $e');
-    }
+    // لا نحفظ من التطبيق: SimpleFCMService يضيف الطلب إلى fcm_queue،
+    // وCloud Function تنشئ السجل الواحد بعد نجاح الإرسال. الحفظ هنا كان
+    // ينتج نسخة مطابقة في شاشة ولي الأمر.
+    debugPrint('ℹ️ Notification record will be created by notification delivery');
   }
 
   /// حفظ إشعار مع بيانات إضافية
@@ -1146,23 +1147,9 @@ class NotificationService {
     Map<String, dynamic>? data,
     String? studentName,
   }) async {
-    try {
-      await _firestore.collection('notifications').add({
-        'title': title,
-        'body': body,
-        'message': body,
-        'type': type.toString().split('.').last,
-        'recipientId': recipientId,
-        'isRead': false,
-        'timestamp': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        if (studentName != null) 'studentName': studentName,
-        if (data != null) 'data': data,
-      });
-      debugPrint('✅ Notification with data saved to Firestore');
-    } catch (e) {
-      debugPrint('❌ Error saving notification with data: $e');
-    }
+    // نفس المسار الموحد أعلاه؛ البيانات تُرسل ضمن fcm_queue وتحفظها الدالة
+    // السحابية في سجل الإشعار النهائي.
+    debugPrint('ℹ️ Notification record with data will be created by notification delivery');
   }
 
   /// تنسيق التاريخ

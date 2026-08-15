@@ -954,7 +954,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
         await _notificationService.notifyStudentBoardedWithSound(
           studentId: student.id,
           studentName: student.name,
-          busId: student.busRoute,
+          busId: student.busId,
           busNumber: student.busRoute,
           parentId: student.parentId,
           supervisorId: supervisorId,
@@ -966,7 +966,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
         await _notificationService.notifyStudentAlightedWithSound(
           studentId: student.id,
           studentName: student.name,
-          busId: student.busRoute,
+          busId: student.busId,
           busNumber: student.busRoute,
           parentId: student.parentId,
           supervisorId: supervisorId,

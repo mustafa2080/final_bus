@@ -181,9 +181,11 @@ class SimpleFCMService {
   void _setupMessageHandlers() {
     // تعيين خيارات عرض الإشعارات في المقدمة
     _messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
+      // نحن نعرض إشعاراً محلياً موحداً في المقدمة؛ تفعيل عرض FCM هنا
+      // يسبب نسخة ثانية من الإشعار على iOS.
+      alert: false,
+      badge: false,
+      sound: false,
     );
 
     // معالج الرسائل في المقدمة
@@ -238,6 +240,20 @@ class SimpleFCMService {
       }
     } catch (e) {
       debugPrint('❌ Error getting FCM token: $e');
+    }
+  }
+
+  /// يربط التوكن بالمستخدم بعد تسجيل الدخول. هذا هو المدخل الموحد لتحديث
+  /// الإشعارات عند تغيّر الحساب، بدلاً من تشغيل خدمة FCM ثانية.
+  Future<void> syncCurrentUser() async {
+    try {
+      final token = _currentToken ?? await _messaging.getToken();
+      if (token == null) return;
+
+      _currentToken = token;
+      await _saveTokenToFirestore(token);
+    } catch (e) {
+      debugPrint('❌ Error syncing notification token for current user: $e');
     }
   }
 
@@ -363,32 +379,31 @@ class SimpleFCMService {
     try {
       debugPrint('📤 Sending notification to user: $userId');
 
-      // إضافة الإشعار إلى قائمة الانتظار
+      final resolvedChannelId = channelId ?? 'mybus_notifications';
+      final type = data?['type'] ?? 'general';
+      final deduplicationKey = _createDeduplicationKey(
+        userId: userId,
+        title: title,
+        body: body,
+        type: type,
+        data: data,
+      );
+
+      // كل إرسال يمر عبر الطابور فقط. الـ Cloud Function هي المصدر الوحيد
+      // لحفظ سجل الإشعار وإرساله، لذلك لا توجد سجلات متكررة بين التطبيق والخادم.
       await _firestore.collection('fcm_queue').add({
         'recipientId': userId,
         'title': title,
         'body': body,
         'data': {
           ...?data,
-          'channelId': channelId ?? 'mybus_notifications',
-          'type': data?['type'] ?? 'general',
+          'channelId': resolvedChannelId,
+          'type': type,
         },
+        'deduplicationKey': deduplicationKey,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'priority': 'high',
-      });
-
-      // حفظ نسخة في مجموعة notifications
-      await _firestore.collection('notifications').add({
-        'recipientId': userId,
-        'title': title,
-        'body': body,
-        'type': data?['type'] ?? 'general',
-        'data': data ?? {},
-        'channelId': channelId ?? 'mybus_notifications',
-        'isRead': false,
-        'timestamp': FieldValue.serverTimestamp(),
-        'source': 'simple_fcm_service',
       });
 
       debugPrint('✅ Notification queued for user: $userId');
@@ -396,6 +411,35 @@ class SimpleFCMService {
       debugPrint('❌ Error sending notification to user $userId: $e');
       rethrow;
     }
+  }
+
+  /// مفتاح ثابت خلال دقيقة واحدة يمنع تكرار نفس الحدث بسبب نقر مزدوج أو retry.
+  /// وجود بيانات حدث صريحة يجعلها جزءاً من المفتاح حتى لا تُدمج أحداث مختلفة.
+  String _createDeduplicationKey({
+    required String userId,
+    required String title,
+    required String body,
+    required String type,
+    required Map<String, String>? data,
+  }) {
+    final minuteBucket = DateTime.now().millisecondsSinceEpoch ~/ 60000;
+    final dataEntries = (data?.entries.toList() ?? <MapEntry<String, String>>[])
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final parts = <String>[
+      userId,
+      type,
+      title,
+      body,
+      minuteBucket.toString(),
+      ...dataEntries.map((entry) => '${entry.key}=${entry.value}'),
+    ];
+
+    var hash = 0x811c9dc5;
+    for (final codeUnit in parts.join('|').codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return 'v1_${hash.toRadixString(16)}';
   }
 
   /// إرسال إشعار لجميع المستخدمين من نوع معين

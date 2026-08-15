@@ -47,6 +47,105 @@ if (!persistenceEnabled) {
         });
 }
 
+// ============================================
+// 🔔 إشعارات الأدمن (FCM Web Push)
+// ============================================
+// ⚠️ لازم تستبدل القيمة دي بالـ VAPID key بتاعك من:
+// Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
+const FCM_VAPID_KEY = 'BD56VNrZuXsZ3UXeKGDebFGgPwL9T6O4F3RvZik-YHMDf5qAP4YMFBdK9ruKV5dDlLNJ4cXUsrT5QddVP6NhlBs';
+
+/**
+ * تسجيل الـ service worker، طلب إذن الإشعارات، وحفظ الـ FCM token
+ * في مستند الأدمن على Firestore عشان الباك إند يقدر يبعتله push.
+ */
+async function setupAdminPushNotifications(uid) {
+    try {
+        if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+            console.warn('⚠️ المتصفح لا يدعم الإشعارات');
+            return;
+        }
+
+        if (FCM_VAPID_KEY === 'PASTE_YOUR_VAPID_KEY_HERE') {
+            console.warn('⚠️ لم يتم ضبط FCM_VAPID_KEY بعد - تخطي إعداد الإشعارات');
+            return;
+        }
+
+        console.log('🔔 تسجيل Service Worker للإشعارات...');
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        console.log('✅ Service Worker مسجّل:', registration.scope);
+
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            console.warn('⚠️ المستخدم لم يمنح إذن الإشعارات:', permission);
+            return;
+        }
+
+        const messaging = firebase.messaging();
+        const token = await messaging.getToken({
+            vapidKey: FCM_VAPID_KEY,
+            serviceWorkerRegistration: registration,
+        });
+
+        if (!token) {
+            console.warn('⚠️ لم يتم الحصول على FCM token');
+            return;
+        }
+
+        console.log('✅ FCM Token:', token.substring(0, 30) + '...');
+
+        // حفظ التوكن في مستند المستخدم (نفس الحقل اللي الباك إند بيقرأ منه)
+        await db.collection('users').doc(uid).update({
+            fcmToken: token,
+            fcmTokenUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            fcmPlatform: 'web',
+        });
+        console.log('✅ تم حفظ FCM token في Firestore');
+
+        // استقبال الإشعارات لما التاب يكون مفتوح فعليًا (foreground)
+        messaging.onMessage((payload) => {
+            console.log('📩 [Foreground] رسالة مستلمة:', payload);
+            const data = payload.data || {};
+            const title = data.title || 'إشعار جديد';
+            const body = data.body || '';
+
+            // عرض إشعار متصفح حتى لو التاب مفتوح
+            if (Notification.permission === 'granted') {
+                new Notification(title, {
+                    body,
+                    icon: '/favicon.ico',
+                    tag: data.type || 'general',
+                    dir: 'rtl',
+                    lang: 'ar',
+                });
+            }
+
+            // تحديث جرس الإشعارات داخل الواجهة لو الدالة موجودة
+            if (typeof window.onNewAdminNotification === 'function') {
+                window.onNewAdminNotification({ title, body, ...data });
+            }
+        });
+
+        // تحديث التوكن تلقائيًا لو اتغيّر (نادر لكن ممكن يحصل)
+        navigator.serviceWorker.ready.then(() => {
+            messaging.onTokenRefresh?.(async () => {
+                try {
+                    const newToken = await messaging.getToken({ vapidKey: FCM_VAPID_KEY });
+                    await db.collection('users').doc(uid).update({
+                        fcmToken: newToken,
+                        fcmTokenUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    });
+                    console.log('🔄 تم تحديث FCM token');
+                } catch (e) {
+                    console.warn('⚠️ فشل تحديث FCM token:', e.message);
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error('❌ خطأ في إعداد إشعارات الأدمن:', error);
+    }
+}
+
 // Firebase helper functions
 const FirebaseService = {
     // Authentication
@@ -1562,6 +1661,7 @@ auth.onAuthStateChanged(async (user) => {
             if (user.email === 'admin@mybus.com') {
                 console.log('✅ Admin email detected, granting access');
                 window.currentUser = user;
+                setupAdminPushNotifications(user.uid);
                 if (window.onAuthStateChanged) {
                     window.onAuthStateChanged(user);
                 }
@@ -1572,6 +1672,7 @@ auth.onAuthStateChanged(async (user) => {
                 if (isAdmin) {
                     console.log('✅ Admin access granted');
                     window.currentUser = user;
+                    setupAdminPushNotifications(user.uid);
                     if (window.onAuthStateChanged) {
                         window.onAuthStateChanged(user);
                     }

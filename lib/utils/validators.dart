@@ -305,7 +305,7 @@ class Validators {
     sanitized = sanitized.replaceAll(RegExp(r'(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)', caseSensitive: false), '');
 
     // إزالة الأحرف الخطيرة
-    sanitized = sanitized.replaceAll(RegExp(r'[<>"\']'), '');
+    sanitized = sanitized.replaceAll(RegExp(r'''[<>"']'''), '');
 
     return sanitized.trim();
   }

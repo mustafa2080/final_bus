@@ -1124,13 +1124,20 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
               student.schoolName.isNotEmpty ? student.schoolName : 'غير محدد'),
           _buildStudentInfoRow('العنوان',
               student.address.isNotEmpty ? student.address : 'غير محدد'),
-          FutureBuilder<String>(
-            future: _getStudentBusRoute(student),
-            builder: (context, routeSnapshot) {
-              final busRoute = routeSnapshot.data ?? 'جاري التحميل...';
-              return _buildStudentInfoRow('خط السير', busRoute);
-            },
-          ),
+          // لو busRoute موجودة أصلاً في بيانات الطالب، بنعرضها فورًا من غير
+          // أي استعلام Firestore إضافي. الاستعلام (FutureBuilder) بيحصل بس
+          // في الحالة النادرة اللي تكون فيها busRoute فاضية - وده كان بيتكرر
+          // بلا داعي لكل طالب مع كل rebuild للشاشة قبل التعديل.
+          if (student.busRoute.isNotEmpty && student.busRoute.trim().isNotEmpty)
+            _buildStudentInfoRow('خط السير', student.busRoute)
+          else
+            FutureBuilder<String>(
+              future: _getStudentBusRoute(student),
+              builder: (context, routeSnapshot) {
+                final busRoute = routeSnapshot.data ?? 'جاري التحميل...';
+                return _buildStudentInfoRow('خط السير', busRoute);
+              },
+            ),
           _buildStudentInfoRow('الحالة الحالية',
               _getStatusDisplayText(student.currentStatus.toString().split('.').last)),
           _buildStudentInfoRow('هاتف ولي الأمر', student.parentPhone, isPhone: true),

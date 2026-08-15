@@ -5,15 +5,10 @@ import 'package:provider/provider.dart';
 import '../../models/user_model.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/admin_notification_service.dart';
 import '../../services/notification_service.dart';
-import '../../services/fcm_service.dart';
-import '../../services/fcm_http_service.dart';
 import '../../models/notification_model.dart';
 import '../../models/absence_model.dart';
 import '../../models/complaint_model.dart';
-import '../../models/admin_notification_model.dart';
-import '../../widgets/admin_notification_dialog.dart';
 import '../../widgets/admin_bottom_navigation.dart';
 import '../../utils/responsive_helper.dart';
 
@@ -28,7 +23,6 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
     with SingleTickerProviderStateMixin {
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
-  final AdminNotificationService _adminNotificationService = AdminNotificationService();
   late final NotificationService _notificationService;
   late TabController _tabController;
 
@@ -39,36 +33,11 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
     
     // تهيئة خدمة الإشعارات
     _notificationService = NotificationService();
-    
-    _initializeAdminNotifications();
-  }
-
-  /// تهيئة خدمة إشعارات الأدمن
-  Future<void> _initializeAdminNotifications() async {
-    try {
-      debugPrint('🔄 بدء تهيئة خدمة إشعارات الأدمن...');
-
-      // انتظار حتى يصبح context متاحاً
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      if (mounted) {
-        await _adminNotificationService.initialize(context);
-        debugPrint('✅ تم تهيئة خدمة إشعارات الأدمن بنجاح');
-        debugPrint('📊 حالة التهيئة: ${_adminNotificationService.isInitialized}');
-        debugPrint('📊 عدد الإشعارات: ${_adminNotificationService.notifications.length}');
-
-        // تحديث الواجهة بعد التهيئة
-        setState(() {});
-      }
-    } catch (e) {
-      debugPrint('❌ خطأ في تهيئة خدمة إشعارات الأدمن: $e');
-    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _adminNotificationService.dispose();
     super.dispose();
   }
 
@@ -746,8 +715,8 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
         ),
       );
 
-      // إعادة تهيئة خدمة الإشعارات
-      await _initializeAdminNotifications();
+      // البيانات تُقرأ عبر StreamBuilder من DatabaseService (تحديث تلقائي)
+      if (mounted) setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1483,509 +1452,6 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
     );
   }
 
-  /// بناء تاب إشعارات الأدمن المحلية
-  Widget _buildAdminNotifications() {
-    return Column(
-      children: [
-        // شريط الأدوات
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            border: Border(
-              bottom: BorderSide(color: Colors.grey[200]!),
-            ),
-          ),
-          child: Row(
-            children: [
-              // عداد الإشعارات
-              StreamBuilder<int>(
-                stream: _adminNotificationService.unreadCountStream,
-                builder: (context, snapshot) {
-                  final unreadCount = snapshot.data ?? 0;
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: unreadCount > 0 ? Colors.red : Colors.grey,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '$unreadCount غير مقروء',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const Spacer(),
-
-              // زر تحديد الكل كمقروء
-              TextButton.icon(
-                onPressed: () async {
-                  await _adminNotificationService.markAllAsRead();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('تم تحديد جميع الإشعارات كمقروءة'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.mark_email_read, size: 16),
-                label: const Text('تحديد الكل كمقروء'),
-              ),
-
-              // زر إزالة المكررات
-              TextButton.icon(
-                onPressed: () => _removeDuplicates(),
-                icon: const Icon(Icons.content_copy, size: 16),
-                label: const Text('إزالة المكررات'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.orange,
-                ),
-              ),
-
-              // زر مسح الكل
-              TextButton.icon(
-                onPressed: () => _showClearAllDialog(),
-                icon: const Icon(Icons.clear_all, size: 16),
-                label: const Text('مسح الكل'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.red,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // قائمة الإشعارات
-        Expanded(
-          child: StreamBuilder<List<AdminNotificationModel>>(
-            stream: _adminNotificationService.notificationsStream,
-            builder: (context, snapshot) {
-              // إضافة تشخيص مفصل
-              debugPrint('🔍 AdminNotifications - Connection State: ${snapshot.connectionState}');
-              debugPrint('🔍 AdminNotifications - Has Error: ${snapshot.hasError}');
-              debugPrint('🔍 AdminNotifications - Error: ${snapshot.error}');
-              debugPrint('🔍 AdminNotifications - Data Length: ${snapshot.data?.length ?? 0}');
-              debugPrint('🔍 AdminNotifications - Service Initialized: ${_adminNotificationService.isInitialized}');
-
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('جاري تحميل إشعارات الأدمن...'),
-                    ],
-                  ),
-                );
-              }
-
-              if (snapshot.hasError) {
-                debugPrint('❌ Error in admin notifications: ${snapshot.error}');
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error, size: 64, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('خطأ في تحميل الإشعارات: ${snapshot.error}'),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () => _debugAdminNotifications(),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('إعادة المحاولة'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-
-              final notifications = snapshot.data ?? [];
-              debugPrint('📊 Loaded ${notifications.length} admin notifications');
-
-              if (notifications.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.notifications_off, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'لا توجد إشعارات',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'ستظهر الإشعارات الجديدة هنا',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: () async {
-                              await _adminNotificationService.addTestNotifications();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('تم إضافة إشعارات تجريبية للاختبار'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.add),
-                            label: const Text('إضافة إشعارات تجريبية'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: () => _debugAdminNotifications(),
-                            icon: const Icon(Icons.bug_report),
-                            label: const Text('تشخيص الخدمة'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: () => _sendRealTestNotification(),
-                            icon: const Icon(Icons.notification_important),
-                            label: const Text('إشعار حقيقي'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              }
-
-              return Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: ResponsiveHelper.isSmallScreen(context)
-                        ? double.infinity
-                        : 900,
-                  ),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: notifications.length,
-                    itemBuilder: (context, index) {
-                      final notification = notifications[index];
-                      return _buildAdminNotificationCard(notification);
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// بناء بطاقة إشعار الأدمن
-  Widget _buildAdminNotificationCard(AdminNotificationModel notification) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: notification.isRead ? 1 : 3,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: notification.isRead ? Colors.grey[300]! : _getAdminNotificationColor(notification),
-          width: notification.isRead ? 1 : 2,
-        ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _showNotificationDetails(notification),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // الهيدر
-              Row(
-                children: [
-                  // أيقونة النوع
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: _getAdminNotificationColor(notification).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      notification.typeIcon,
-                      style: const TextStyle(fontSize: 20),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-
-                  // معلومات الإشعار
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              notification.typeDescription,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: _getAdminNotificationColor(notification),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: _getAdminNotificationColor(notification),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                notification.priorityText,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          notification.title,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: notification.isRead ? FontWeight.normal : FontWeight.bold,
-                            color: notification.isRead ? Colors.grey[700] : Colors.black87,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // مؤشرات
-                  Column(
-                    children: [
-                      if (notification.isNew)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'جديد',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      if (!notification.isRead)
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: _getAdminNotificationColor(notification),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // المحتوى
-              Text(
-                notification.body,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: notification.isRead ? Colors.grey[600] : Colors.black54,
-                  height: 1.4,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-
-              const SizedBox(height: 12),
-
-              // الفوتر
-              Row(
-                children: [
-                  Icon(
-                    Icons.access_time,
-                    size: 14,
-                    color: Colors.grey[500],
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    notification.formattedTime,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[500],
-                    ),
-                  ),
-                  const Spacer(),
-
-                  // أزرار الإجراءات
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!notification.isRead)
-                        IconButton(
-                          onPressed: () => _adminNotificationService.markAsRead(notification.id),
-                          icon: const Icon(Icons.mark_email_read, size: 16),
-                          tooltip: 'تحديد كمقروء',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                        ),
-                      IconButton(
-                        onPressed: () => _deleteAdminNotification(notification),
-                        icon: const Icon(Icons.delete, size: 16),
-                        tooltip: 'حذف',
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// الحصول على لون الإشعار حسب الأولوية
-  Color _getAdminNotificationColor(AdminNotificationModel notification) {
-    switch (notification.priority) {
-      case NotificationPriority.low:
-        return Colors.green;
-      case NotificationPriority.normal:
-        return Colors.blue;
-      case NotificationPriority.high:
-        return Colors.orange;
-      case NotificationPriority.urgent:
-        return Colors.red;
-    }
-  }
-
-  /// عرض تفاصيل الإشعار
-  void _showNotificationDetails(AdminNotificationModel notification) {
-    showDialog(
-      context: context,
-      builder: (context) => AdminNotificationDialog(
-        notification: notification,
-        onDismiss: () => Navigator.of(context).pop(),
-        onMarkAsRead: () => _adminNotificationService.markAsRead(notification.id),
-      ),
-    );
-  }
-
-  /// حذف إشعار الأدمن
-  void _deleteAdminNotification(AdminNotificationModel notification) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تأكيد الحذف'),
-        content: Text('هل تريد حذف الإشعار "${notification.title}"؟'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _adminNotificationService.deleteNotification(notification.id);
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم حذف الإشعار'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// عرض حوار مسح جميع الإشعارات
-  void _showClearAllDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تأكيد المسح'),
-        content: const Text('هل تريد مسح جميع الإشعارات؟ هذا الإجراء لا يمكن التراجع عنه.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _adminNotificationService.clearAllNotifications();
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم مسح جميع الإشعارات'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('مسح الكل'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// إزالة الإشعارات المكررة
-  Future<void> _removeDuplicates() async {
-    try {
-      await _adminNotificationService.removeDuplicateNotifications();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم فحص وإزالة الإشعارات المكررة'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('خطأ في إزالة المكررات: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   /// تشخيص بيانات الغياب
   Future<void> _debugAbsenceData() async {
     try {
@@ -2040,23 +1506,20 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
       // حفظ الطلب في قاعدة البيانات
       await _databaseService.createAbsence(testAbsence);
 
-      // إنشاء إشعار للأدمن عن الطلب الجديد
-      await _adminNotificationService.addNotification(
-        AdminNotificationModel(
-          id: 'absence_${testAbsence.id}',
+      // إنشاء إشعار حقيقي للأدمن عن الطلب الجديد (عبر المسار الموحّد: FCM + Firestore)
+      final adminId = _authService.currentUser?.uid;
+      if (adminId != null) {
+        await _notificationService.sendGeneralNotification(
           title: 'طلب غياب جديد',
           body: 'طلب غياب جديد للطالب ${testAbsence.studentName} - ${testAbsence.reason}',
-          type: 'absence',
-          priority: NotificationPriority.normal,
-          timestamp: DateTime.now(),
-          isRead: false,
+          targetUserId: adminId,
           data: {
             'absenceId': testAbsence.id,
             'studentName': testAbsence.studentName,
             'type': 'absenceRequested',
           },
-        ),
-      );
+        );
+      }
 
       debugPrint('✅ تم إنشاء طلب الغياب التجريبي والإشعار بنجاح');
 
@@ -2169,20 +1632,20 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
     );
   }
 
-  /// إرسال إشعار اختبار حقيقي
+  /// إرسال إشعار اختبار حقيقي (عبر المسار الموحّد: SimpleFCMService -> fcm_queue -> Cloud Function -> FCM)
   Future<void> _sendRealTestNotification() async {
     try {
       debugPrint('🧪 Sending real test notification...');
 
-      // إرسال إشعار حقيقي عبر AdminNotificationService
-      await _adminNotificationService.sendRealTestNotification();
+      final adminId = _authService.currentUser?.uid;
+      if (adminId == null) {
+        throw Exception('لا يوجد مستخدم مسجل دخول');
+      }
 
-      // إرسال إشعار حقيقي عبر FCMHttpService أيضاً
-      final fcmHttpService = FCMHttpService();
-      await fcmHttpService.sendInstantTestNotification(
+      await _notificationService.sendGeneralNotification(
         title: '🧪 إشعار اختبار حقيقي من الأدمن',
         body: 'هذا إشعار حقيقي يجب أن يظهر في شريط الإشعارات حتى لو كان التطبيق مغلق أو في الخلفية',
-        channelId: 'admin_notifications',
+        targetUserId: adminId,
         data: {
           'type': 'admin_real_test',
           'action': 'open_admin_notifications',
@@ -2217,29 +1680,26 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
     }
   }
 
-  /// تشخيص خدمة إشعارات الأدمن
+  /// تشخيص خدمة إشعارات الأدمن (يعتمد على المصدر الحقيقي الموحّد: Firestore عبر DatabaseService)
   Future<void> _debugAdminNotifications() async {
     try {
+      final adminId = _authService.currentUser?.uid;
       debugPrint('🔍 === تشخيص خدمة إشعارات الأدمن ===');
-      debugPrint('🔍 Service Initialized: ${_adminNotificationService.isInitialized}');
-      debugPrint('🔍 Current User: ${_authService.currentUser?.uid}');
+      debugPrint('🔍 Current User: $adminId');
       debugPrint('🔍 Current User Email: ${_authService.currentUser?.email}');
 
-      // محاولة إعادة تهيئة الخدمة
-      await _adminNotificationService.initialize();
-      debugPrint('✅ Service re-initialized');
+      if (adminId == null) {
+        throw Exception('لا يوجد مستخدم مسجل دخول');
+      }
 
-      // إضافة إشعارات تجريبية
-      await _adminNotificationService.addTestNotifications();
-      debugPrint('✅ Test notifications added');
-
-      // إرسال إشعار FCM تجريبي أيضاً
-      final fcmService = Provider.of<FCMService>(context, listen: false);
-      await fcmService.sendTestNotification(
+      // إرسال إشعار تجريبي حقيقي عبر المسار الموحّد
+      await _notificationService.sendGeneralNotification(
         title: 'إشعار تجريبي من التشخيص',
         body: 'هذا إشعار تجريبي للتأكد من عمل النظام',
+        targetUserId: adminId,
+        data: {'type': 'admin_debug_test'},
       );
-      debugPrint('✅ FCM test notification sent');
+      debugPrint('✅ Test notification sent via NotificationService');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

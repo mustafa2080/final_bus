@@ -8,9 +8,9 @@ import 'package:provider/provider.dart';
 import '../../services/persistent_auth_service.dart';
 import '../../services/map_service.dart';
 import '../../widgets/curved_app_bar.dart';
+import '../../widgets/animated_bus_marker.dart';
 import '../../utils/responsive_helper.dart';
 import 'dart:async';
-import 'dart:math' as math;
 
 class BusTrackingScreen extends StatefulWidget {
   final String? busId;
@@ -52,6 +52,13 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
   // للانيميشن
   Timer? _locationUpdateTimer;
   LatLng? _previousLocation;
+
+  // يحدد حالة الماركر (لون) بناءً على تتبع الباص وسرعته الحالية
+  BusMarkerStatus get _busMarkerStatus {
+    if (!_isTracking) return BusMarkerStatus.inactive;
+    if (_busSpeed < 3) return BusMarkerStatus.idle; // متوقف/بطيء جدًا
+    return BusMarkerStatus.active;
+  }
 
   @override
   void initState() {
@@ -622,74 +629,19 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
                             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.mybus',
                           ),
-                          // ماركر الباص
-                          MarkerLayer(
-                            markers: [
-                              Marker(
-                                width: 100.0,
-                                height: 100.0,
-                                point: _busLocation!,
-                                child: Transform.rotate(
-                                  angle: _busHeading * math.pi / 180,
-                                  child: Column(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: _isTracking ? Colors.green : Colors.orange,
-                                          borderRadius: BorderRadius.circular(8),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.3),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Text(
-                                          _parentStudentNames.join('، '),
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        width: 50,
-                                        height: 50,
-                                        decoration: BoxDecoration(
-                                          color: Colors.yellow.shade700,
-                                          borderRadius: BorderRadius.circular(25),
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 3,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.3),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.directions_bus,
-                                          color: Colors.white,
-                                          size: 30,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                          // ماركر الباص (متحرك بسلاسة + احترافي)
+                          AnimatedMarkerPositionLayer(
+                            from: _previousLocation ?? _busLocation!,
+                            to: _busLocation!,
+                            width: 140.0,
+                            height: 140.0,
+                            child: AnimatedBusMarker(
+                              heading: _busHeading,
+                              status: _busMarkerStatus,
+                              label: _parentStudentNames.isEmpty
+                                  ? (_busNumber ?? 'الباص')
+                                  : _parentStudentNames.join('، '),
+                            ),
                           ),
                         ],
                       ),

@@ -27,6 +27,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
+  // Stream واحد لكل الطلاب يُنشأ مرة واحدة ويُستخدم في أكتر من قسم بالشاشة
+  // (كان قبل كده بيتنشأ اشتراكين منفصلين على نفس الاستعلام في مكانين -
+  // _buildDashboardCards و _buildQuickStatsSection - وده بيضاعف حركة
+  // البيانات مع Firestore بلا داعي).
+  late final Stream<List<StudentModel>> _allStudentsStream =
+      _databaseService.getAllStudents();
+
   @override
   void initState() {
     super.initState();
@@ -498,7 +505,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   Widget _buildDashboardCards() {
     return StreamBuilder<List<StudentModel>>(
-      stream: _databaseService.getAllStudents(),
+      stream: _allStudentsStream,
       builder: (context, snapshot) {
         final students = snapshot.data ?? [];
         final totalStudents = students.length;
@@ -1206,7 +1213,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   Widget _buildQuickStatsSection() {
     return StreamBuilder<List<StudentModel>>(
-      stream: _databaseService.getAllStudents(),
+      stream: _allStudentsStream,
       builder: (context, snapshot) {
         final students = snapshot.data ?? [];
 

@@ -157,3 +157,6 @@ integration_test/driver/
 **/.env.staging
  
 backend/*firebase-adminsdk*.json
+
+# Local system tools (Windows service manager, etc.) - not project code
+backend/_service_tools/

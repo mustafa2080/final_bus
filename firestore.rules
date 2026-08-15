@@ -101,10 +101,22 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       // الأدمن يمكنه إدارة جميع الإشعارات
       allow read, write: if isAdmin();
+      // الأدمن والمشرف يمكنهم إنشاء إشعارات (مثلاً عند تغيير حالة الطالب)
+      allow create: if isAdmin() || isSupervisor();
       // المستخدم يمكنه قراءة إشعاراته فقط
       allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(resource.data.recipientId));
       // المستخدم يمكنه تحديث حالة القراءة لإشعاراته
       allow update: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(resource.data.recipientId));
+    }
+
+    // FCM Queue collection - طابور إرسال الإشعارات (بتعالجه Cloud Function processFcmQueue)
+    match /fcm_queue/{queueId} {
+      // الأدمن والمشرف يمكنهم إضافة إشعارات للطابور (لإرسالها لولي الأمر مثلاً)
+      allow create: if isAdmin() || isSupervisor();
+      // الأدمن فقط يقرأ الطابور (لأغراض المراقبة/الدعم)
+      allow read: if isAdmin();
+      // التحديث والحذف بيتم من Cloud Functions فقط (Admin SDK بيتخطى الـ rules أصلاً)
+      allow update, delete: if false;
     }
 
     // Absence requests - طلبات الغياب

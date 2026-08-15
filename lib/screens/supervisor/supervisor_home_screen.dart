@@ -62,12 +62,18 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   // التنفيذ في كل build مع الـ pulse animation)
   String _routeSubtitle = 'إدارة رحلات الطلاب';
 
+  // Future ثابت لتسكين المشرف يُحمَّل مرة واحدة بدل ما يتحمل من جديد
+  // كل مرة الشاشة تعمل rebuild (كان بيسبب استعلام Firestore متكرر بلا داعي)
+  late Future<List<SupervisorAssignmentModel>> _assignmentFuture;
+
   @override
   void initState() {
     super.initState();
     _initializeStreams();
     _listenToSystemUpdates();
     _loadRouteSubtitle();
+    final supervisorId = _authService.currentUser?.uid ?? '';
+    _assignmentFuture = _databaseService.getSupervisorAssignmentsSimple(supervisorId);
 
     // تهيئة animation للنبضة
     _pulseController = AnimationController(
@@ -509,77 +515,43 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     _checkSupervisorAssignments();
   }
 
+  // كاش بسيط للتسكينات (assignments) عشان الـ polling كل 15 ثانية ميعملش
+  // استعلام على supervisor_assignments كل مرة من غير داعي - بيانات التسكين
+  // بتتغير نادرًا جدًا مقارنة بحالة الطلاب.
+  SupervisorAssignmentModel? _cachedAssignment;
+  DateTime? _assignmentCachedAt;
+
   Future<List<StudentModel>> _loadSupervisorStudents(String supervisorId) async {
     try {
-      debugPrint('🔄 Loading supervisor students for: $supervisorId');
-
-      // استخدام الطريقة البسيطة
-      final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
-      debugPrint('📋 Found ${assignments.length} assignments for supervisor');
-
-      if (assignments.isEmpty) {
-        debugPrint('⚠️ No assignments found for supervisor $supervisorId');
-        return <StudentModel>[];
-      }
-
-      final assignment = assignments.first;
-      var busRoute = assignment.busRoute;
-      var busId = assignment.busId;
-      debugPrint('🚌 Assignment busRoute: "$busRoute"');
-      debugPrint('🚌 Assignment busId: "$busId"');
-
-      // إذا كان busRoute فارغ، احصل عليه من بيانات الباص
-      if (busRoute.isEmpty && busId.isNotEmpty) {
-        debugPrint('⚠️ busRoute is empty, fetching from bus data...');
-        try {
-          final bus = await _databaseService.getBusById(busId);
-          if (bus != null) {
-            busRoute = bus.route;
-            debugPrint('✅ Got busRoute from bus: "$busRoute"');
-          } else {
-            debugPrint('❌ Bus not found for ID: $busId');
-          }
-        } catch (e) {
-          debugPrint('❌ Error getting bus data: $e');
+      // استخدام التسكين المخزن مؤقتًا لو عمره أقل من دقيقتين، تجنبًا لاستعلام
+      // supervisor_assignments في كل تكرار polling (كل 15 ثانية)
+      SupervisorAssignmentModel? assignment = _cachedAssignment;
+      final cacheAge = _assignmentCachedAt == null
+          ? null
+          : DateTime.now().difference(_assignmentCachedAt!);
+      if (assignment == null || cacheAge == null || cacheAge > const Duration(minutes: 2)) {
+        final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
+        if (assignments.isEmpty) {
+          _cachedAssignment = null;
+          return <StudentModel>[];
         }
+        assignment = assignments.first;
+        _cachedAssignment = assignment;
+        _assignmentCachedAt = DateTime.now();
       }
 
-      // جلب الطلاب بطرق متعددة للتأكد من الحصول على البيانات
-      List<StudentModel> students = [];
+      final busId = assignment.busId;
+      final busRoute = assignment.busRoute;
 
-      // الطريقة الأولى: البحث بـ busRoute
-      if (busRoute.isNotEmpty) {
-        students = await _databaseService.getStudentsByRouteSimple(busRoute);
-        debugPrint('👥 Found ${students.length} students by route "$busRoute"');
-      }
-
-      // الطريقة الثانية: البحث بـ busId إذا لم نجد طلاب بـ busRoute
-      if (students.isEmpty && busId.isNotEmpty) {
-        debugPrint('🔍 No students found by route, trying busId: $busId');
+      // استعلام واحد فقط، مباشر ومفهرس - busId أدق وأثبت من busRoute النصي.
+      // لا يوجد fallback يسحب كل طلاب النظام (كان بيسبب البطء الشديد).
+      List<StudentModel> students;
+      if (busId.isNotEmpty) {
         students = await _databaseService.getStudentsByBusIdSimple(busId);
-        debugPrint('👥 Found ${students.length} students by busId "$busId"');
-      }
-
-      // الطريقة الثالثة: البحث في الطلاب المسكنين فقط إذا لم نجد أي طلاب
-      if (students.isEmpty) {
-        debugPrint('🔍 No students found by route or busId, checking assigned students...');
-        final assignedStudents = await _databaseService.getAssignedStudents();
-        debugPrint('👥 Total assigned students in database: ${assignedStudents.length}');
-
-        // فلترة الطلاب حسب busRoute أو busId
-        students = assignedStudents.where((student) {
-          final matchesRoute = busRoute.isNotEmpty && student.busRoute == busRoute;
-          final matchesBusId = busId.isNotEmpty && student.busId == busId;
-          debugPrint('🔍 Checking assigned student ${student.name}: route="${student.busRoute}", busId="${student.busId}"');
-          return matchesRoute || matchesBusId;
-        }).toList();
-
-        debugPrint('👥 Found ${students.length} matching assigned students');
-      }
-
-      // طباعة تفاصيل الطلاب الموجودين
-      for (final student in students) {
-        debugPrint('   - ${student.name} (Route: "${student.busRoute}", BusId: "${student.busId}", Active: ${student.isActive})');
+      } else if (busRoute.isNotEmpty) {
+        students = await _databaseService.getStudentsByRouteSimple(busRoute);
+      } else {
+        students = <StudentModel>[];
       }
 
       return students;
@@ -1964,7 +1936,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
 
         // الصف الثاني - إحصائيات خط السير
         FutureBuilder<List<SupervisorAssignmentModel>>(
-          future: _databaseService.getSupervisorAssignmentsSimple(_authService.currentUser?.uid ?? ''),
+          future: _assignmentFuture,
           builder: (context, assignmentSnapshot) {
             if (assignmentSnapshot.hasData && assignmentSnapshot.data!.isNotEmpty) {
               final assignment = assignmentSnapshot.data!.first;
@@ -1998,10 +1970,13 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   }
 
   Widget _buildRouteStatsWithData(String busRoute) {
-    final supervisorId = _authService.currentUser?.uid ?? '';
-
-    return FutureBuilder<List<StudentModel>>(
-      future: _loadSupervisorStudents(supervisorId),
+    // بنستخدم نفس الـ _studentsOnBusStream الموجود بالفعل (بدل ما نستدعي
+    // _loadSupervisorStudents من جديد هنا) عشان مانعملش استعلام Firestore
+    // إضافي منفصل في كل مرة الشاشة تعمل rebuild (كانت المشكلة الأساسية
+    // في بطء تحميل بيانات المشرف - FutureBuilder بيستدعي دالة جديدة كل
+    // rebuild بدل ما يستخدم Future/Stream ثابت).
+    return StreamBuilder<List<StudentModel>>(
+      stream: _studentsOnBusStream,
       builder: (context, studentsSnapshot) {
         if (studentsSnapshot.connectionState == ConnectionState.waiting) {
           return _buildRouteStatsCard('...', '...', busRoute.isEmpty ? 'جاري التحميل...' : busRoute);
@@ -2015,8 +1990,6 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
         final allStudents = studentsSnapshot.data ?? [];
         final activeStudents = allStudents.where((s) => s.isActive).length;
         final routeDisplayName = busRoute.isEmpty ? 'خط السير' : busRoute;
-
-        debugPrint('📊 Route stats - Total: ${allStudents.length}, Active: $activeStudents, Route: $routeDisplayName');
 
         return GestureDetector(
           onTap: () => context.push('/supervisor/route-statistics'),
@@ -2579,14 +2552,39 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                         final notification = notifications[index];
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
+                          color: notification.isRead ? null : Colors.blue[50],
                           child: ListTile(
-                            leading: const Icon(Icons.notifications, color: Colors.blue),
-                            title: Text(notification.title),
+                            leading: Icon(
+                              Icons.notifications,
+                              color: notification.isRead ? Colors.grey : Colors.blue,
+                            ),
+                            title: Text(
+                              notification.title,
+                              style: TextStyle(
+                                fontWeight: notification.isRead ? FontWeight.normal : FontWeight.bold,
+                              ),
+                            ),
                             subtitle: Text(notification.body),
                             trailing: Text(
                               _formatTime(notification.timestamp),
                               style: const TextStyle(fontSize: 11),
                             ),
+                            onTap: () async {
+                              if (!notification.isRead) {
+                                try {
+                                  await _databaseService.markNotificationAsRead(notification.id);
+                                } catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('تعذر تحديد الإشعار كمقروء: $e'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
+                            },
                           ),
                         );
                       },

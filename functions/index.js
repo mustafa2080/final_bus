@@ -46,6 +46,34 @@ exports.processFcmQueue = onDocumentCreated('fcm_queue/{queueId}', async (event)
   const queueRef = db.collection('fcm_queue').doc(queueId);
 
   try {
+    // يمر كل إرسال من التطبيق بمفتاح منع تكرار. نأخذ الحجز داخل transaction
+    // حتى لا ترسل محاولتان متزامنتان (double tap/retry) نفس الإشعار مرتين.
+    const deduplicationKey = queueItem.deduplicationKey;
+    if (deduplicationKey) {
+      const deliveryRef = db.collection('notification_deliveries').doc(deduplicationKey);
+      const acquired = await db.runTransaction(async (transaction) => {
+        const delivery = await transaction.get(deliveryRef);
+        if (delivery.exists) return false;
+
+        transaction.set(deliveryRef, {
+          queueId,
+          recipientId: queueItem.recipientId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 2 * 60 * 1000),
+        });
+        return true;
+      });
+
+      if (!acquired) {
+        await queueRef.update({
+          status: 'skipped_duplicate',
+          skippedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        logger.info(`⏭️ إشعار مكرر تم تجاهله: ${queueId}`, { deduplicationKey });
+        return;
+      }
+    }
+
     await queueRef.update({
       status: 'processing',
       processedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -124,6 +152,22 @@ exports.processFcmQueue = onDocumentCreated('fcm_queue/{queueId}', async (event)
 
     const response = await messaging.send(message);
 
+    // سجل الإشعار يُنشأ هنا فقط، بعد الإرسال الفعلي؛ وهذا يمنع تكرار السجل
+    // الذي كان يحصل عندما يحفظ التطبيق والخدمة نسختين منفصلتين.
+    await db.collection('notifications').doc(queueId).set({
+      recipientId: queueItem.recipientId,
+      title: queueItem.title || 'إشعار جديد',
+      body: queueItem.body || '',
+      type: queueItem.data?.type || 'general',
+      data: queueItem.data || {},
+      channelId: queueItem.data?.channelId || 'mybus_notifications',
+      isRead: false,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      source: 'notification_delivery',
+      queueId,
+      messageId: response,
+    });
+
     await queueRef.update({
       status: 'sent',
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -165,7 +209,7 @@ exports.processFcmQueue = onDocumentCreated('fcm_queue/{queueId}', async (event)
 });
 
 /**
- * 🧹 تنظيف دوري: بيحذف عناصر fcm_queue القديمة (sent/failed) كل يوم
+ * 🧹 تنظيف دوري: بيحذف عناصر fcm_queue القديمة ومفاتيح منع التكرار كل يوم
  * بديل الـ setInterval اللي كان في الـ Node backend
  */
 const { onSchedule } = require('firebase-functions/v2/scheduler');
@@ -174,7 +218,7 @@ exports.cleanupFcmQueue = onSchedule('every 24 hours', async () => {
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const snapshot = await db.collection('fcm_queue')
-    .where('status', 'in', ['sent', 'failed'])
+    .where('status', 'in', ['sent', 'failed', 'skipped_duplicate'])
     .where('createdAt', '<', admin.firestore.Timestamp.fromDate(oneDayAgo))
     .get();
 
@@ -188,4 +232,16 @@ exports.cleanupFcmQueue = onSchedule('every 24 hours', async () => {
   await batch.commit();
 
   logger.info(`🧹 تم حذف ${snapshot.size} عنصر قديم من fcm_queue`);
+
+  const expiredDeliveries = await db.collection('notification_deliveries')
+    .where('expiresAt', '<', admin.firestore.Timestamp.now())
+    .limit(500)
+    .get();
+
+  if (!expiredDeliveries.empty) {
+    const deliveryBatch = db.batch();
+    expiredDeliveries.forEach((doc) => deliveryBatch.delete(doc.ref));
+    await deliveryBatch.commit();
+    logger.info(`🧹 تم حذف ${expiredDeliveries.size} مفتاح منع تكرار منتهي`);
+  }
 });

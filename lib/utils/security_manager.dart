@@ -62,7 +62,7 @@ class SecurityManager {
     clean = clean.replaceAll(RegExp(r'(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)', caseSensitive: false), '');
     
     // إزالة الأحرف الخطيرة
-    clean = clean.replaceAll(RegExp(r'[<>"\']'), '');
+    clean = clean.replaceAll(RegExp(r'''[<>"']'''), '');
     
     return clean.trim();
   }
@@ -94,7 +94,7 @@ class SecurityManager {
   static bool isValidQRCode(String qrCode) {
     if (qrCode.isEmpty) return false;
     if (qrCode.length < 10 || qrCode.length > 100) return false;
-    if (RegExp(r'[<>"\']').hasMatch(qrCode)) return false;
+    if (RegExp('[<>"\']').hasMatch(qrCode)) return false;
     return true;
   }
   

@@ -280,8 +280,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  void _markAsRead(String notificationId) {
-    _notificationService.markNotificationAsRead(notificationId);
+  Future<void> _markAsRead(String notificationId) async {
+    try {
+      await _notificationService.markNotificationAsRead(notificationId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر تحديد الإشعار كمقروء: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _markAllAsRead() async {

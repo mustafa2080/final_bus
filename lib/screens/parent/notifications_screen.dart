@@ -333,6 +333,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await _databaseService.markNotificationAsRead(notification.id);
     } catch (e) {
       debugPrint('❌ Error marking notification as read: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر تحديد الإشعار كمقروء: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

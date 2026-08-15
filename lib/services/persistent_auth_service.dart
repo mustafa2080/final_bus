@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
-import 'enhanced_push_notification_service.dart';
+import 'simple_fcm_service.dart';
 
 /// خدمة المصادقة المستمرة - تحافظ على تسجيل الدخول
 class PersistentAuthService extends ChangeNotifier {
@@ -13,8 +13,7 @@ class PersistentAuthService extends ChangeNotifier {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final EnhancedPushNotificationService _notificationService = 
-      EnhancedPushNotificationService();
+  final SimpleFCMService _notificationService = SimpleFCMService();
 
   // Private variables
   UserModel? _currentUserData;
@@ -142,7 +141,6 @@ class PersistentAuthService extends ChangeNotifier {
       } else {
         // المستخدم خرج من التطبيق
         _currentUserData = null;
-        await _notificationService.cleanup();
         notifyListeners();
       }
     });
@@ -175,7 +173,7 @@ class PersistentAuthService extends ChangeNotifier {
   /// تحديث خدمة الإشعارات
   Future<void> _updateNotificationService() async {
     try {
-      await _notificationService.updateCurrentUser(_currentUserData?.id);
+      await _notificationService.syncCurrentUser();
       debugPrint('✅ Notification service updated for user: ${_currentUserData?.id}');
     } catch (e) {
       debugPrint('❌ Error updating notification service: $e');
@@ -299,8 +297,6 @@ class PersistentAuthService extends ChangeNotifier {
       debugPrint('🔓 Signing out user (clearPersistedData: $clearPersistedData)');
 
       // تنظيف خدمة الإشعارات
-      await _notificationService.cleanup();
-
       // تسجيل الخروج من Firebase
       await _auth.signOut();
       
