@@ -1246,12 +1246,18 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     );
   }
 
-  // Get parent name from profile
+  // Get parent name from profile. لو ولي الأمر لسه معملش "إكمال بيانات"
+  // (parent_profiles) نرجع لاسمه الأساسي من التسجيل (users.name) بدل
+  // ما نعرض "غير محدد" رغم إن الاسم موجود فعليًا من وقت التسجيل.
   Future<String> _getParentName(String parentId) async {
     try {
       final profile = await _databaseService.getParentProfile(parentId);
       if (profile != null && profile.fullName.isNotEmpty) {
         return profile.fullName;
+      }
+      final user = await _databaseService.getUserById(parentId);
+      if (user != null && user.name.isNotEmpty) {
+        return user.name;
       }
       return 'غير محدد';
     } catch (e) {
@@ -1260,7 +1266,9 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     }
   }
 
-  // Get parent address from profile
+  // Get parent address from profile. العنوان مش موجود في بيانات التسجيل
+  // الأساسية أصلًا، فمصدره الوحيد parent_profiles - لو ولي الأمر لسه
+  // معملش "إكمال بيانات" هيفضل "غير محدد" لحد ما يعمل ده من شاشته.
   Future<String> _getParentAddress(String parentId) async {
     try {
       final profile = await _databaseService.getParentProfile(parentId);
