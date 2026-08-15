@@ -118,8 +118,13 @@ service cloud.firestore {
     // كده، فكانت بتقع تحت القاعدة الافتراضية اللي بتمنع كل شيء - وده
     // كان بيمنع حفظ أي توكن إشعارات لأي مستخدم (ولي أمر / مشرف / أدمن).
     match /fcm_tokens/{userId} {
-      // المستخدم يقدر يكتب/يحدّث توكن نفسه بس، الأدمن يقدر يدير الكل
-      allow read, write: if isOwner(userId) || isAdmin();
+      // المستخدم يقدر يكتب/يحدّث توكن نفسه بس
+      allow write: if isOwner(userId) || isAdmin();
+      // القراءة لصاحب التوكن، أو للأدمن، أو لأي مستخدم مسجّل دخول عشان
+      // يقدر يستخدم sendNotificationToUserType (مثلاً المشرف بيبعت
+      // إشعار لكل الأدمنز بعد تحديث حالة طالب). القراءة هنا محدودة
+      // بحقول التوكن نفسه، مفيهاش بيانات حساسة عن المستخدم التاني.
+      allow read: if isOwner(userId) || isAdmin() || isAuthenticated();
     }
 
     // FCM Queue collection - طابور إرسال الإشعارات (بيعالجه سيرفر Node.js
@@ -147,6 +152,15 @@ service cloud.firestore {
     match /parent_profiles/{parentId} {
       // ولي الأمر يقدر يقرأ/يكتب بياناته هو بس، الأدمن يقدر يدير الكل
       allow read, write: if isOwner(parentId) || isAdmin();
+    }
+
+    // System updates - علامة تحديث عامة (last_student_update وغيرها)
+    // بيستخدمها التطبيق كإشارة "فيه تحديث جديد" عشان الشاشات تعمل
+    // refresh، مفيهاش بيانات حساسة. كانت ناقصة القاعدة فكانت بتقع
+    // تحت القاعدة الافتراضية اللي بتمنع كل شيء - وده كان بيسبب
+    // permission-denied عند أي تحديث لحالة طالب.
+    match /system_updates/{docId} {
+      allow read, write: if isAuthenticated();
     }
 
     // Absence requests - طلبات الغياب
