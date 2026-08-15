@@ -38,8 +38,11 @@ service cloud.firestore {
 
     // Users collection - بيانات المستخدمين
     match /users/{userId} {
-      // المستخدم يمكنه قراءة بياناته فقط، الأدمن يمكنه قراءة الكل
-      allow read: if isOwner(userId) || isAdmin();
+      // المستخدم يمكنه قراءة بياناته فقط، الأدمن يمكنه قراءة الكل.
+      // المشرف يقدر يقرا بيانات أي مستخدم (اسم/هاتف ولي الأمر بيظهر
+      // في شاشة الطلاب عنده) - مفيش أي داتا حساسة (باسورد/توكن) هنا،
+      // القراءة بس مش الكتابة.
+      allow read: if isOwner(userId) || isAdmin() || isSupervisor();
       // المستخدم يمكنه تحديث بياناته فقط، الأدمن يمكنه تحديث الكل
       allow write: if isOwner(userId) || isAdmin();
     }
@@ -150,8 +153,13 @@ service cloud.firestore {
     // اللي بتمنع كل شيء - وده كان بيسبب permission-denied فورًا لما
     // ولي الأمر يحاول يقرأ أو يحفظ بياناته في شاشة "إكمال البيانات".
     match /parent_profiles/{parentId} {
-      // ولي الأمر يقدر يقرأ/يكتب بياناته هو بس، الأدمن يقدر يدير الكل
-      allow read, write: if isOwner(parentId) || isAdmin();
+      // ولي الأمر يقدر يقرأ/يكتب بياناته هو بس، الأدمن يقدر يدير الكل.
+      // المشرف يقدر يقرا بس (مش يكتب) عشان شاشة "بيانات الطالب" عنده
+      // بتعرض اسم/عنوان ولي الأمر - كانت القاعدة قاصرة على الأدمن بس
+      // فكان بيوصله permission-denied صامت وتظهر "غير محدد" حتى لو
+      // البيانات موجودة فعلاً وظاهرة عند الأدمن.
+      allow read: if isOwner(parentId) || isAdmin() || isSupervisor();
+      allow write: if isOwner(parentId) || isAdmin();
     }
 
     // System updates - علامة تحديث عامة (last_student_update وغيرها)
