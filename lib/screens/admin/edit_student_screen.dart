@@ -756,7 +756,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           newBusName = newBus.plateNumber;
         }
 
-        updatedFields['busId'] = {
+        // مفتاح "الحافلة" بدل "busId" لأن القيمة المعروضة فعليًا هي رقم
+        // لوحة الباص (plateNumber) للقراءة، مش الـ ID نفسه - "busId" كان
+        // بيظهر في نص الإشعار للمستخدم النهائي وبيلخبط، خصوصًا إن مفيش
+        // علاقة بين الاسم والقيمة الظاهرة (رقم لوحة زي "217").
+        updatedFields['الحافلة'] = {
           'old': oldBusName,
           'new': newBusName,
         };
