@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'notification_service.dart';
+import 'simple_fcm_service.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -243,6 +244,18 @@ class AuthService extends ChangeNotifier {
         // تم استبدال خدمات الإشعارات بالخدمة الموحدة
         debugPrint('✅ User logged in successfully');
 
+        // ربط FCM token بالحساب اللي دخل بيه دلوقتي. لو التطبيق كان
+        // اتفتح قبل تسجيل الدخول (وده الحالة العادية دايمًا)، التوكن
+        // كان اتولّد بس ماتحفظش لأي مستخدم في main.dart initialize()
+        // لأن currentUser كان null وقتها. من غير النداء ده، حقل
+        // fcmToken بيفضل فاضي/قديم وأي إشعار للمستخدم ده بيفشل بصمت.
+        try {
+          await SimpleFCMService().syncCurrentUser();
+          debugPrint('✅ FCM token synced for logged-in user');
+        } catch (e) {
+          debugPrint('❌ Error syncing FCM token after login: $e');
+        }
+
         return userData;
       }
       return null;
@@ -368,8 +381,23 @@ class AuthService extends ChangeNotifier {
     try {
       _setLoading(true);
 
-      // تم استبدال خدمات الإشعارات بالخدمة الموحدة
-      debugPrint('✅ Stopping notification services before logout');
+      // تعطيل استلام إشعارات الحساب اللي هيخرج، قبل استدعاء
+      // _auth.signOut() (لازم نعمل ده وإحنا لسه عارفين uid المستخدم،
+      // وإلا هيبقى الوصول لبياناته ممنوع بسبب Firestore rules)
+      final uidBeforeLogout = _auth.currentUser?.uid;
+      if (uidBeforeLogout != null) {
+        try {
+          await _firestore.collection('users').doc(uidBeforeLogout).update({
+            'isActive': false,
+          });
+          await _firestore.collection('fcm_tokens').doc(uidBeforeLogout).update({
+            'isActive': false,
+          });
+          debugPrint('✅ Disabled FCM token for logged-out user');
+        } catch (e) {
+          debugPrint('⚠️ Could not disable FCM token on logout: $e');
+        }
+      }
 
       await _auth.signOut();
       _currentUserData = null;
