@@ -49,21 +49,20 @@
 	<string>يحتاج التطبيق إلى الكاميرا لمسح رموز QR الخاصة بالطلاب</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>يحتاج التطبيق إلى الوصول لمعرض الصور لاختيار صور الطلاب</string>
+	<!-- التتبع بيشتغل فقط لما شاشة المشرف مفتوحة وفي المقدمة (foreground)،
+	     ومفيش أي كود فعلي بيستخدم الموقع في الخلفية. لذلك تم إزالة
+	     NSLocationAlwaysUsageDescription/AlwaysAndWhenInUse و"location"
+	     من UIBackgroundModes: طلب صلاحية "استخدام دائم" بدون استخدام
+	     فعلي في الخلفية هو سبب رفض شائع من Apple (Guideline 5.1.1) وGoogle
+	     Play على حد سواء. لو حبينا نضيف تتبع خلفية حقيقي مستقبلًا، لازم
+	     نضيف location كـ background mode حقيقي (background location
+	     updates) قبل ما نرجّع الصلاحيات دي. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>يحتاج التطبيق إلى الوصول للموقع لعرض موقع الباص وتتبع رحلته على الخريطة</string>
-	<!-- مطلوبة لأن المشرف بيبعت موقع الباص أثناء الرحلة حتى لو قفل الشاشة
-	     أو غيّر تطبيق. الاستخدام الفعلي في الخلفية موجود (location في
-	     UIBackgroundModes + استمرار GPS)، فده استخدام مبرر أمام Apple
-	     (App Review Guideline 5.1.1) وليس طلب صلاحية بدون داعي. -->
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>يحتاج التطبيق لتتبع موقع الباص في الخلفية حتى يتمكن أولياء الأمور من متابعة رحلة أبنائهم لحظة بلحظة، حتى عند قفل شاشة المشرف</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>يحتاج التطبيق لتتبع موقع الباص في الخلفية حتى يتمكن أولياء الأمور من متابعة رحلة أبنائهم لحظة بلحظة</string>
+	<string>يحتاج التطبيق إلى الوصول للموقع لعرض موقع الباص وتتبع رحلته على الخريطة أثناء استخدام التطبيق</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>remote-notification</string>
-		<string>location</string>
 	</array>
 </dict>
 </plist>

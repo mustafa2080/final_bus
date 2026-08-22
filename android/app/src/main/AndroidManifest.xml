@@ -5,7 +5,6 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- FCM Permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -13,8 +12,6 @@
 
     <!-- أذونات إضافية للإشعارات في الخلفية -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Storage permissions for file export (legacy devices only; modern export uses app-scoped storage) -->
@@ -27,12 +24,15 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!-- Location permissions -->
+    <!-- التتبع بيشتغل فقط لما التطبيق مفتوح (foreground)، فمفيش داعي
+         لـ ACCESS_BACKGROUND_LOCATION أو FOREGROUND_SERVICE_LOCATION.
+         وجود صلاحية الموقع في الخلفية بدون استخدام فعلي في الكود هو
+         سبب رفض شائع جدًا من Google Play (Background Location policy +
+         Prominent Disclosure)، فتم إزالتها. لو حبينا نضيف تتبع خلفية
+         حقيقي مستقبلًا، لازم نضيف foreground service حقيقي (مثلًا عبر
+         flutter_background_service) قبل ما نرجّع الصلاحيات دي. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- لتتبع موقع الباص وهو التطبيق في الخلفية (شاشة المشرف مقفولة) -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <!-- Foreground Service من نوع location مطلوب في Android 14+ (API 34) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:label="كيدز باص"
