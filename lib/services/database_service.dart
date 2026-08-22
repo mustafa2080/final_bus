@@ -21,8 +21,6 @@ import 'rate_limit_service.dart';
 import 'cache_service.dart';
 import 'notification_service.dart';
 import 'simple_fcm_service.dart';
-import 'notification_fix.dart';
-
 
 class DatabaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -30,7 +28,6 @@ class DatabaseService {
   final Uuid _uuid = const Uuid();
   final RateLimitService _rateLimitService = RateLimitService();
   final CacheService _cacheService = CacheService();
-  final NotificationDatabaseFix _notificationFix = NotificationDatabaseFix();
 
   // Getter للوصول إلى Firestore من خارج الكلاس
   FirebaseFirestore get firestore => _firestore;
@@ -833,6 +830,119 @@ class DatabaseService {
     } catch (e) {
       debugPrint('❌ Error permanently deleting user: $e');
       throw Exception('خطأ في حذف المستخدم نهائياً: $e');
+    }
+  }
+
+  /// حذف حساب المستخدم نفسه (self-service account deletion) مطلوبة من
+  /// Apple App Review Guideline 5.1.1(v) وGoogle Play Data Safety لأي
+  /// تطبيق بيعمل تسجيل حساب. بتحذف كل بيانات المستخدم المرتبطة بيه في
+  /// Firestore حسب نوعه (parent بيحذف أطفاله كمان، supervisor بيتشال من
+  /// تسكيناته). حذف حساب Firebase Auth نفسه بيحصل في AuthService بعد
+  /// نجاح الدالة دي، لأنه محتاج re-authentication منفصل.
+  Future<void> deleteMyAccountData(String userId, UserType userType) async {
+    debugPrint('🗑️ Deleting all account data for user: $userId ($userType)');
+    final batch = _firestore.batch();
+    int batchOps = 0;
+
+    Future<void> commitIfNeeded() async {
+      // Firestore بيحدد أقصى 500 عملية لكل batch واحد
+      if (batchOps >= 400) {
+        await batch.commit();
+        batchOps = 0;
+      }
+    }
+
+    try {
+      if (userType == UserType.parent) {
+        // حذف كل أطفال ولي الأمر (حذف نهائي، مش soft delete، لأن
+        // البيانات دي مرتبطة بحساب هيتشال بالكامل)
+        final studentsSnapshot = await _firestore
+            .collection('students')
+            .where('parentId', isEqualTo: userId)
+            .get();
+        for (final doc in studentsSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+
+        // علاقات parent_children
+        final relationshipsSnapshot = await _firestore
+            .collection('parent_children')
+            .where('parentId', isEqualTo: userId)
+            .get();
+        for (final doc in relationshipsSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+
+        // بروفايل ولي الأمر
+        batch.delete(_firestore.collection('parent_profiles').doc(userId));
+        batchOps++;
+
+        // الشكاوى وتقييمات المشرفين اللي بعتها ولي الأمر
+        final complaintsSnapshot = await _firestore
+            .collection('complaints')
+            .where('parentId', isEqualTo: userId)
+            .get();
+        for (final doc in complaintsSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+
+        final evaluationsSnapshot = await _firestore
+            .collection('supervisor_evaluations')
+            .where('parentId', isEqualTo: userId)
+            .get();
+        for (final doc in evaluationsSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+
+        // إشعارات الغياب اللي بعتها ولي الأمر
+        final absencesSnapshot = await _firestore
+            .collection('absences')
+            .where('parentId', isEqualTo: userId)
+            .get();
+        for (final doc in absencesSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+      } else if (userType == UserType.supervisor) {
+        // تسكينات المشرف على الباصات
+        final assignmentsSnapshot = await _firestore
+            .collection('supervisor_assignments')
+            .where('supervisorId', isEqualTo: userId)
+            .get();
+        for (final doc in assignmentsSnapshot.docs) {
+          batch.delete(doc.reference);
+          batchOps++;
+        }
+      }
+
+      await commitIfNeeded();
+
+      // مشترك بين كل الأنواع: الإشعارات، توكن الـ FCM، بيانات المستخدم
+      // الأساسية
+      final notificationsSnapshot = await _firestore
+          .collection('notifications')
+          .where('recipientId', isEqualTo: userId)
+          .get();
+      for (final doc in notificationsSnapshot.docs) {
+        batch.delete(doc.reference);
+        batchOps++;
+        await commitIfNeeded();
+      }
+
+      batch.delete(_firestore.collection('fcm_tokens').doc(userId));
+      batchOps++;
+      batch.delete(_firestore.collection('users').doc(userId));
+      batchOps++;
+
+      await batch.commit();
+      debugPrint('✅ Account data deleted for user: $userId');
+    } catch (e) {
+      debugPrint('❌ Error deleting account data: $e');
+      throw Exception('خطأ في حذف بيانات الحساب: $e');
     }
   }
 
@@ -4726,16 +4836,6 @@ Future<void> updateAbsenceStatus(String absenceId, String status, {String? notes
   }
 
   // ==================== NOTIFICATION METHODS ====================
-  
-  /// Delete notification
-  Future<void> deleteNotification(String notificationId) async {
-    return _notificationFix.deleteNotification(notificationId);
-  }
-
-  /// Get notification by ID
-  Future<NotificationModel?> getNotificationById(String notificationId) async {
-    return _notificationFix.getNotificationById(notificationId);
-  }
 
   /// Get parent notifications (for parent users)
   Stream<List<NotificationModel>> getParentNotifications(String parentId) {

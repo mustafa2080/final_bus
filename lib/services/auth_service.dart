@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'notification_service.dart';
 import 'simple_fcm_service.dart';
+import 'database_service.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -429,6 +430,59 @@ class AuthService extends ChangeNotifier {
       await _auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
+    }
+  }
+
+  /// حذف حساب المستخدم بشكل نهائي (self-service account deletion).
+  /// مطلوبة من Apple (Guideline 5.1.1(v)) وGoogle Play لأي تطبيق بيعمل
+  /// تسجيل حساب. بتطلب كلمة السر الحالية لعمل re-authentication، لأن
+  /// Firebase بيرفض حذف الحساب لو الجلسة قديمة (`requires-recent-login`)،
+  /// وبعدين بتحذف كل بيانات Firestore المرتبطة قبل حذف حساب Auth نفسه.
+  Future<void> deleteMyAccount({required String currentPassword}) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw Exception('لا يوجد مستخدم مسجل دخوله حاليًا');
+    }
+
+    try {
+      // إعادة المصادقة أولًا (مطلوبة من Firebase قبل أي حذف حساب)
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    }
+
+    final uid = user.uid;
+    UserModel? userData;
+    try {
+      userData = await getUserData(uid);
+    } catch (e) {
+      debugPrint('⚠️ Could not load user data before deletion: $e');
+    }
+
+    try {
+      // 1) حذف كل بيانات Firestore المرتبطة بالحساب أولًا (وإحنا لسه
+      // معتمدين ومصرح لنا بالوصول عن طريق Firestore rules)
+      if (userData != null) {
+        await DatabaseService().deleteMyAccountData(uid, userData.userType);
+      }
+
+      // 2) حذف حساب Firebase Auth نفسه
+      await user.delete();
+
+      _currentUserData = null;
+      await _clearLoginInfo();
+      notifyListeners();
+
+      debugPrint('✅ Account permanently deleted: $uid');
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      debugPrint('❌ Error deleting account: $e');
+      throw Exception('حدث خطأ أثناء حذف الحساب: $e');
     }
   }
 

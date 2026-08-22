@@ -19,7 +19,8 @@ class _SupervisorsManagementScreenState extends State<SupervisorsManagementScree
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
+      body: SafeArea(
+        child: Column(
         children: [
           // Header Stats
           Container(
@@ -280,6 +281,7 @@ class _SupervisorsManagementScreenState extends State<SupervisorsManagementScree
             ),
           ),
         ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddSupervisorDialog,

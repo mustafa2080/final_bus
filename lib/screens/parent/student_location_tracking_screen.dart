@@ -366,7 +366,9 @@ class _StudentLocationTrackingScreenState
                 ),
                 // Info Card
                 Positioned(
-                  top: 16,
+                  // بنضيف SafeArea padding عشان الكارت ميتغطاش بالـ notch
+                  // العلوي في الشاشات اللي فيها نتوء
+                  top: 16 + MediaQuery.of(context).padding.top,
                   left: 16,
                   right: 16,
                   child: Card(
@@ -439,7 +441,9 @@ class _StudentLocationTrackingScreenState
                 // Control Buttons
                 Positioned(
                   left: 16,
-                  bottom: 80,
+                  // بنضيف SafeArea padding عشان الأزرار متتغطاش بالـ home
+                  // indicator السفلي
+                  bottom: 80 + MediaQuery.of(context).padding.bottom,
                   child: Column(
                     children: [
                       // زر التوسيط على موقع الطالب

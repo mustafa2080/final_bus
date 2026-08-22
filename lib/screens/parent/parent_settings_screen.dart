@@ -421,6 +421,16 @@ class _ParentSettingsScreenState extends State<ParentSettingsScreen> {
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: _clearCache,
           ),
+
+          const Divider(),
+
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.red),
+            title: const Text('حذف الحساب', style: TextStyle(color: Colors.red)),
+            subtitle: const Text('حذف حسابك وكل بياناتك نهائيًا'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.red),
+            onTap: _showDeleteAccountDialog,
+          ),
         ],
       ),
     );
@@ -855,6 +865,142 @@ class _ParentSettingsScreenState extends State<ParentSettingsScreen> {
             child: const Text('حذف'),
           ),
         ],
+      ),
+    );
+  }
+
+  // Account Deletion (self-service, required by App Store / Play Store)
+  Future<void> _showDeleteAccountDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('حذف الحساب نهائيًا'),
+          ],
+        ),
+        content: const SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'سيتم حذف حسابك وكل البيانات المرتبطة به بشكل نهائي، ولا يمكن التراجع عن هذا الإجراء. سيتم حذف:',
+              ),
+              SizedBox(height: 12),
+              Text('• بيانات حسابك الشخصية'),
+              Text('• بيانات أطفالك المسجلين وربطهم بالحافلات'),
+              Text('• الشكاوى وتقييمات المشرفين التي أرسلتها'),
+              Text('• إشعارات الغياب وسجل الإشعارات'),
+              SizedBox(height: 12),
+              Text(
+                'هل أنت متأكد من رغبتك في المتابعة؟',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('متابعة الحذف'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await _showDeleteAccountPasswordDialog();
+    }
+  }
+
+  Future<void> _showDeleteAccountPasswordDialog() async {
+    final passwordController = TextEditingController();
+    bool isDeleting = false;
+    String? errorText;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('تأكيد كلمة المرور'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('لأسباب أمنية، يرجى إدخال كلمة المرور الحالية لتأكيد حذف الحساب:'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                enabled: !isDeleting,
+                decoration: InputDecoration(
+                  labelText: 'كلمة المرور',
+                  border: const OutlineInputBorder(),
+                  errorText: errorText,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isDeleting ? null : () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              onPressed: isDeleting
+                  ? null
+                  : () async {
+                      if (passwordController.text.isEmpty) {
+                        setDialogState(() => errorText = 'يرجى إدخال كلمة المرور');
+                        return;
+                      }
+                      setDialogState(() {
+                        isDeleting = true;
+                        errorText = null;
+                      });
+                      try {
+                        await _authService.deleteMyAccount(
+                          currentPassword: passwordController.text,
+                        );
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                        }
+                        if (mounted) {
+                          context.go('/login');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم حذف حسابك بنجاح'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() {
+                          isDeleting = false;
+                          errorText = e.toString().replaceFirst('Exception: ', '');
+                        });
+                      }
+                    },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: isDeleting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('حذف الحساب نهائيًا'),
+            ),
+          ],
+        ),
       ),
     );
   }

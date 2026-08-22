@@ -4,12 +4,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:mybus/main.dart';
+import 'package:kidsbus/main.dart';
 
 void main() {
   testWidgets('MyBus app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp());
 
     // Wait for the app to load
     await tester.pumpAndSettle();
@@ -20,7 +20,7 @@ void main() {
 
   testWidgets('App navigation test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp());
 
     // Wait for the app to load
     await tester.pumpAndSettle();

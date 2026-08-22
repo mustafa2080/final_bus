@@ -224,6 +224,8 @@ class _ModernBottomNavigationState extends State<ModernBottomNavigation>
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    // مساحة الأمان السفلية (خط الهوم في آيفون بدون زر Home)
+    final bottomSafeArea = MediaQuery.of(context).padding.bottom;
     final navItems = _getNavItems();
     
     return AnimatedBuilder(
@@ -236,7 +238,7 @@ class _ModernBottomNavigationState extends State<ModernBottomNavigation>
             margin: EdgeInsets.only(
               left: _getHorizontalMargin(screenWidth),
               right: _getHorizontalMargin(screenWidth),
-              bottom: _getBottomMargin(screenHeight),
+              bottom: _getBottomMargin(screenHeight) + bottomSafeArea,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(_getBorderRadius(screenWidth)),

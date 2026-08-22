@@ -11,54 +11,39 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 
-    <!-- إذونات الإشعارات المحسنة -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
     <!-- أذونات إضافية للإشعارات في الخلفية -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- أذونات إضافية لضمان عمل الإشعارات -->
-    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    
-    <!-- أذونات إضافية لضمان ظهور الإشعارات خارج التطبيق -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
-    <uses-permission android:name="android.permission.SHOW_WHEN_LOCKED" />
-
-    <!-- Storage permissions for file export -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    <!-- Storage permissions for file export (legacy devices only; modern export uses app-scoped storage) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
-    <!-- For Android 13+ (API 33+) -->
+    <!-- For Android 13+ (API 33+) - صور فقط، التطبيق مش بيستخدم فيديو أو صوت -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- لتتبع موقع الباص وهو التطبيق في الخلفية (شاشة المشرف مقفولة) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Foreground Service من نوع location مطلوب في Android 14+ (API 34) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:label="كيدز باص"
-        android:name="com.example.mybus.MainApplication"
+        android:name="com.kidsbus.mybus.MainApplication"
         android:icon="@mipmap/launcher_icon"
         android:allowBackup="true"
         android:requestLegacyExternalStorage="true"
-        android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:largeHeap="true">
         <activity
-            android:name="com.example.mybus.MainActivity"
+            android:name="com.kidsbus.mybus.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
@@ -89,7 +74,7 @@
         </activity>
         <!-- خدمة استقبال وعرض إشعارات FCM في الخلفية (background/killed) -->
         <service
-            android:name="com.example.mybus.MyFirebaseMessagingService"
+            android:name="com.kidsbus.mybus.MyFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

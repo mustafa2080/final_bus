@@ -8,10 +8,10 @@ const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const logger = require('firebase-functions/logger');
+const { sendFcmNotification } = require('./utils/sendNotification');
 
 admin.initializeApp();
 const db = admin.firestore();
-const messaging = admin.messaging();
 
 // إعدادات عامة: منطقة قريبة من مصر + حدود تكلفة معقولة
 setGlobalOptions({
@@ -95,86 +95,42 @@ exports.processFcmQueue = onDocumentCreated('fcm_queue/{queueId}', async (event)
     const userData = userDoc.data();
     const fcmToken = userData.fcmToken;
 
-    if (!fcmToken) {
-      await queueRef.update({
-        status: 'failed',
-        error: 'FCM token not found',
-        failedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      logger.warn(`❌ لا يوجد FCM token للمستخدم: ${queueItem.recipientId}`);
-      return;
-    }
+    // ملحوظة: مفيش حاجة نعملها هنا لو fcmToken مش موجود - sendFcmNotification
+    // بتحفظ نسخة in-app برضو وترجع reason: 'no_fcm_token'، فمنعاملهاش كـ استثناء
+    // منفصل زي قبل كده عشان نضمن نفس السلوك مع باقي مسارات الإرسال.
 
-    const message = {
-      token: fcmToken,
-      notification: {
-        title: queueItem.title || 'إشعار جديد',
-        body: queueItem.body || '',
-      },
-      data: {
-        ...(queueItem.data || {}),
-        recipientId: queueItem.recipientId,
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        timestamp: new Date().toISOString(),
-      },
-      android: {
-        priority: queueItem.priority === 'high' ? 'high' : 'normal',
-        notification: {
-          channelId: queueItem.data?.channelId || 'mybus_notifications',
-          sound: 'default',
-          priority: 'high',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          defaultLightSettings: true,
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-            badge: 1,
-            contentAvailable: true,
-          },
-        },
-      },
-      webpush: {
-        notification: {
-          title: queueItem.title,
-          body: queueItem.body,
-          icon: '/icons/icon-192x192.png',
-          badge: '/icons/badge-72x72.png',
-        },
-        fcmOptions: {
-          link: '/',
-        },
-      },
-    };
-
-    const response = await messaging.send(message);
-
-    // سجل الإشعار يُنشأ هنا فقط، بعد الإرسال الفعلي؛ وهذا يمنع تكرار السجل
-    // الذي كان يحصل عندما يحفظ التطبيق والخدمة نسختين منفصلتين.
-    await db.collection('notifications').doc(queueId).set({
+    // بنمرر deduplicationKey (لو موجودة في الـ queue item، جاية من الفلاتر)
+    // عشان الحفظ في notifications يتطابق مع النسخة اللي التطبيق كتبها فورًا
+    // وقت الإرسال - مفيش تكرار في السجل.
+    const result = await sendFcmNotification(admin, db, {
       recipientId: queueItem.recipientId,
+      fcmToken,
       title: queueItem.title || 'إشعار جديد',
       body: queueItem.body || '',
       type: queueItem.data?.type || 'general',
+      channelId: queueItem.data?.channelId,
       data: queueItem.data || {},
-      channelId: queueItem.data?.channelId || 'mybus_notifications',
-      isRead: false,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      source: 'notification_delivery',
-      queueId,
-      messageId: response,
+      priority: queueItem.priority === 'high' ? 'high' : 'normal',
+      deduplicationKey,
     });
+
+    if (!result.sent) {
+      await queueRef.update({
+        status: 'failed',
+        error: result.reason || 'unknown',
+        failedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      logger.warn(`⚠️ لم يتم إرسال push: ${queueId}`, { reason: result.reason });
+      return;
+    }
 
     await queueRef.update({
       status: 'sent',
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
-      messageId: response,
+      messageId: result.messageId,
     });
 
-    logger.info(`✅ إشعار مرسل بنجاح: ${queueId}`, { messageId: response });
+    logger.info(`✅ إشعار مرسل بنجاح: ${queueId}`, { messageId: result.messageId });
   } catch (error) {
     logger.error(`❌ خطأ في إرسال الإشعار: ${queueId}`, {
       error: error.message,

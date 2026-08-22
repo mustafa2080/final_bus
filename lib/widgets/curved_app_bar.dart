@@ -165,7 +165,6 @@ class EnhancedCurvedAppBar extends StatelessWidget implements PreferredSizeWidge
   final Color? backgroundColor;
   final Color? foregroundColor;
   final bool centerTitle;
-  final double height;
   final Widget? subtitle;
   final IconData? leadingIcon;
   final VoidCallback? onLeadingPressed;
@@ -179,11 +178,20 @@ class EnhancedCurvedAppBar extends StatelessWidget implements PreferredSizeWidge
     this.backgroundColor,
     this.foregroundColor,
     this.centerTitle = true,
-    this.height = 180,
+    double? height,
     this.subtitle,
     this.leadingIcon,
     this.onLeadingPressed,
-  });
+  }) : _explicitHeight = height;
+
+  // الارتفاع الفعلي بيتحدد وقت البناء بناءً على وجود subtitle ونص المستخدم
+  // (accessibility text scale)، مش رقم ثابت بيتقص المحتوى لو زاد
+  final double? _explicitHeight;
+
+  // القيمة الافتراضية بترجع أعلى لو فيه subtitle، عشان الارتفاع الأساسي
+  // يكفي المحتوى في الحالة الشائعة (subtitle محمي بـ maxLines:1+ellipsis
+  // فمش هيتخطى المساحة المحجوزة له فعليًا)
+  double get height => _explicitHeight ?? (subtitle != null ? 190 : 150);
 
   @override
   Widget build(BuildContext context) {
@@ -191,6 +199,9 @@ class EnhancedCurvedAppBar extends StatelessWidget implements PreferredSizeWidge
     final fgColor = foregroundColor ?? Colors.white;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Container بارتفاع ثابت (مطلوب من Scaffold's PreferredSizeWidget)، لكن
+    // القيمة الافتراضية بقت تتغير حسب وجود subtitle (150 من غيره / 190 معاه)،
+    // والمحتوى الداخلي محمي بـ maxLines+ellipsis فمش هيعمل overflow فعلي
     return Container(
       height: height,
       decoration: BoxDecoration(
@@ -316,6 +327,8 @@ class EnhancedCurvedAppBar extends StatelessWidget implements PreferredSizeWidge
                             fontWeight: FontWeight.w500,
                             letterSpacing: 0.3,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           child: subtitle!,
                         ),
                       ),
@@ -344,6 +357,8 @@ class EnhancedCurvedAppBar extends StatelessWidget implements PreferredSizeWidge
       ),
       child: Text(
         title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
           fontSize: 20,

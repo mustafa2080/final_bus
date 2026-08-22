@@ -310,40 +310,47 @@ class _TakeSurveyScreenState extends State<TakeSurveyScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: List.generate(5, (index) {
-            final rating = index + 1;
-            final isSelected = _answers[question.id] == rating;
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _answers[question.id] = rating;
-                });
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[200],
-                  border: Border.all(
-                    color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[300]!,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    rating.toString(),
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected ? Colors.white : Colors.grey[600],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // نحسب حجم الدائرة من العرض المتاح فعلياً بدل رقم ثابت، عشان
+            // ميحصلش ضغط أو overflow على الشاشات الضيقة (زي iPhone SE)
+            final circleSize = ((constraints.maxWidth - 32) / 5).clamp(36.0, 50.0);
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(5, (index) {
+                final rating = index + 1;
+                final isSelected = _answers[question.id] == rating;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _answers[question.id] = rating;
+                    });
+                  },
+                  child: Container(
+                    width: circleSize,
+                    height: circleSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[200],
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[300]!,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        rating.toString(),
+                        style: TextStyle(
+                          fontSize: circleSize * 0.36,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? Colors.white : Colors.grey[600],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              }),
             );
-          }),
+          },
         ),
       ],
     );

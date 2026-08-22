@@ -8,6 +8,7 @@ node_modules/
 
 # Firebase
 serviceAccountKey.json
+serviceAccountKey.json.*
 *firebase-adminsdk*.json
 firebase-debug.log
 

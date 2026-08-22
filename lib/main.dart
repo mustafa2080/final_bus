@@ -9,7 +9,6 @@ import 'routes/app_routes.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/simple_fcm_service.dart';
-import 'services/notification_test_service.dart';
 import 'services/notification_dialog_service.dart';
 import 'services/theme_service.dart';
 import 'services/persistent_auth_service.dart';

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../services/persistent_auth_service.dart';
@@ -26,7 +24,6 @@ class BusTrackingScreen extends StatefulWidget {
 
 class _BusTrackingScreenState extends State<BusTrackingScreen> {
   final MapController _mapController = MapController();
-  IO.Socket? _socket;
   StreamSubscription<DocumentSnapshot>? _busStatusSubscription;
   
   // البيانات
@@ -84,7 +81,6 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
       
       if (_busId != null) {
         await _loadBusDetails();
-        _connectToSocket();
       } else {
         setState(() {
           _errorMessage = 'لم يتم تعيين باص لأي من أبنائك';
@@ -155,8 +151,8 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
       
       setState(() {
         _busNumber = busData['busNumber'] as String?;
-        // جلب حالة الباص من isActive
-        _isTracking = busData['isActive'] as bool? ?? false;
+        // جلب حالة التتبع الحي من isTracking (يكتبها المشرف عند بدء/إيقاف الرحلة)
+        _isTracking = busData['isTracking'] as bool? ?? false;
         
         debugPrint('✅ Final _isTracking value: $_isTracking');
         
@@ -229,31 +225,66 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     }
   }
 
+  // 🔴 مراقبة حالة الباص وموقعه مباشرة من Firestore (بديل Socket.IO)
   void _startBusStatusMonitoring() {
     if (_busId == null) return;
-    
+
     _busStatusSubscription = FirebaseFirestore.instance
         .collection('buses')
         .doc(_busId)
         .snapshots()
         .listen((snapshot) {
-      if (snapshot.exists && mounted) {
-        final data = snapshot.data()!;
-        // جلب حالة الباص من isActive
-        final isTracking = data['isActive'] as bool? ?? false;
-        
-        debugPrint('🔍 Bus status changed: $isTracking');
-        
-        if (mounted && _isTracking != isTracking) {
-          setState(() {
-            _isTracking = isTracking;
-          });
-          
-          // عرض إشعار عند تغير الحالة
-          _showSnackBar(
-            isTracking ? 'بدأ تتبع الباص' : 'توقف تتبع الباص',
-            isTracking ? Colors.green : Colors.orange,
-          );
+      if (!snapshot.exists || !mounted) return;
+
+      final data = snapshot.data()!;
+      final isTracking = data['isTracking'] as bool? ?? false;
+
+      if (_isTracking != isTracking) {
+        setState(() {
+          _isTracking = isTracking;
+        });
+        _showSnackBar(
+          isTracking ? 'بدأ تتبع الباص' : 'توقف تتبع الباص',
+          isTracking ? Colors.green : Colors.orange,
+        );
+      }
+
+      // ✅ تحديث الموقع الحي (يُكتب من جهاز المشرف مباشرة في Firestore)
+      final lastLocation = data['lastLocation'] as Map<String, dynamic>?;
+      if (lastLocation == null) return;
+
+      final lat = (lastLocation['latitude'] as num?)?.toDouble();
+      final lng = (lastLocation['longitude'] as num?)?.toDouble();
+      if (lat == null || lng == null) return;
+
+      final newLocation = LatLng(lat, lng);
+      final locationChanged = _busLocation == null ||
+          _busLocation!.latitude != newLocation.latitude ||
+          _busLocation!.longitude != newLocation.longitude;
+
+      setState(() {
+        if (locationChanged) {
+          _previousLocation = _busLocation;
+        }
+        _busLocation = newLocation;
+        _busSpeed = (lastLocation['speed'] as num?)?.toDouble() ?? 0.0;
+        _busHeading = (lastLocation['heading'] as num?)?.toDouble() ?? 0.0;
+        // isFromCache == false يعني إننا بنستقبل بيانات حية من السيرفر الآن
+        _isConnected = !snapshot.metadata.isFromCache;
+        final timestamp = lastLocation['timestamp'];
+        if (timestamp is Timestamp) {
+          _lastUpdate = timestamp.toDate();
+        }
+      });
+
+      if (locationChanged) {
+        _loadLocationAddress();
+        if (_isMapReady) {
+          try {
+            _mapController.move(_busLocation!, _mapController.camera.zoom);
+          } catch (e) {
+            debugPrint('⚠️ Could not move map: $e');
+          }
         }
       }
     });
@@ -366,174 +397,6 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     }
   }
 
-  void _connectToSocket() {
-    if (_busId == null) return;
-    
-    try {
-      // تحديد عنوان الخادم بناءً على المنصة
-      String serverUrl;
-      if (kIsWeb) {
-        serverUrl = 'http://localhost:3000';
-        debugPrint('🌐 Web platform: using $serverUrl');
-      } else {
-        serverUrl = 'http://192.168.2.2:3000';
-        debugPrint('📱 Mobile platform: using $serverUrl');
-      }
-      
-      // اتصال بالـ backend
-      _socket = IO.io(
-        serverUrl,
-        IO.OptionBuilder()
-            .setTransports(['websocket'])
-            .disableAutoConnect()
-            .build(),
-      );
-
-      _socket!.connect();
-
-      // الاستماع لحالة الاتصال
-      _socket!.onConnect((_) {
-        debugPrint('✅ Socket.IO متصل');
-        setState(() {
-          _isConnected = true;
-        });
-        
-        // الاشتراك في تتبع الباص
-        final authService = Provider.of<PersistentAuthService>(context, listen: false);
-        final userId = authService.currentUser?.uid;
-        
-        if (userId != null) {
-          _socket!.emit('parent:subscribeToBus', {
-            'userId': userId,
-            'busId': _busId,
-          });
-        }
-      });
-
-      _socket!.onDisconnect((_) {
-        debugPrint('❌ Socket.IO انقطع الاتصال');
-        setState(() {
-          _isConnected = false;
-        });
-      });
-
-      // الاستماع للموقع الحالي عند الاشتراك
-      _socket!.on('bus:currentLocation', (data) {
-        debugPrint('📍 تم استلام الموقع الحالي');
-        _handleLocationUpdate(data);
-      });
-
-      // الاستماع لتحديثات الموقع المباشرة
-      _socket!.on('bus:locationUpdate', (data) {
-        debugPrint('📍 تحديث موقع جديد');
-        _handleLocationUpdate(data);
-      });
-
-      // الاستماع لبدء التتبع
-      _socket!.on('bus:trackingStarted', (data) {
-        debugPrint('🚌 بدأ التتبع');
-        setState(() {
-          _isTracking = true;
-        });
-        _showSnackBar('بدأ تتبع الباص', Colors.green);
-      });
-
-      // الاستماع لإيقاف التتبع
-      _socket!.on('bus:trackingStopped', (data) {
-        debugPrint('🛑 توقف التتبع');
-        setState(() {
-          _isTracking = false;
-        });
-        _showSnackBar('توقف تتبع الباص', Colors.orange);
-      });
-
-      // الاستماع لتأكيد الاشتراك
-      _socket!.on('parent:subscribed', (data) {
-        debugPrint('✅ تم الاشتراك بنجاح في تتبع الباص');
-        _showSnackBar('تم الاشتراك في تتبع الباص', Colors.green);
-      });
-
-      // الاستماع للأخطاء
-      _socket!.on('error', (data) {
-        debugPrint('❌ خطأ: $data');
-        _showSnackBar('حدث خطأ: ${data['message']}', Colors.red);
-      });
-
-    } catch (e) {
-      debugPrint('❌ Error connecting to socket: $e');
-    }
-  }
-
-  void _handleLocationUpdate(dynamic data) {
-    try {
-      debugPrint('\n📍 ========== LOCATION UPDATE ==========');
-      debugPrint('📍 Raw data: $data');
-      debugPrint('📍 Data type: ${data.runtimeType}');
-      debugPrint('📍 Data keys: ${(data as Map).keys.toList()}');
-      
-      final location = data['location'] as Map<String, dynamic>;
-      final lat = location['latitude'] as double;
-      final lng = location['longitude'] as double;
-      
-      debugPrint('📍 Location: ($lat, $lng)');
-      
-      // جلب السرعة - تأكد من التحويل الصحيح
-      double speed = 0.0;
-      if (data['speed'] != null) {
-        debugPrint('📍 Speed field exists: ${data['speed']} (type: ${data['speed'].runtimeType})');
-        // التحويل الآمن من int أو double إلى double
-        if (data['speed'] is int) {
-          speed = (data['speed'] as int).toDouble();
-        } else if (data['speed'] is double) {
-          speed = data['speed'] as double;
-        } else {
-          speed = double.tryParse(data['speed'].toString()) ?? 0.0;
-        }
-        debugPrint('🚗 Speed converted: $speed km/h');
-      } else {
-        debugPrint('⚠️ Speed field is NULL!');
-      }
-      
-      final heading = (data['heading'] as num?)?.toDouble() ?? 0.0;
-      debugPrint('🧭 Heading: $heading°');
-      debugPrint('========================================\n');
-      
-      if (mounted) {
-        setState(() {
-          _previousLocation = _busLocation;
-          _busLocation = LatLng(lat, lng);
-          _busSpeed = speed;
-          _busHeading = heading;
-          _lastUpdate = DateTime.now();
-          _isTracking = data['isTracking'] as bool? ?? true;
-        });
-        
-        debugPrint('\n✅ ========== STATE UPDATED ==========');
-        debugPrint('✅ Location: ($lat, $lng)');
-        debugPrint('✅ Speed: $_busSpeed km/h');
-        debugPrint('✅ Heading: $_busHeading°');
-        debugPrint('✅ Last Update: $_lastUpdate');
-        debugPrint('✅ Is Tracking: $_isTracking');
-        debugPrint('====================================\n');
-        
-        // تحريك الكاميرا للموقع الجديد (فقط إذا كانت الخريطة جاهزة)
-        if (_isMapReady) {
-          try {
-            _mapController.move(_busLocation!, _mapController.camera.zoom);
-          } catch (e) {
-            debugPrint('⚠️ Could not move map: $e');
-          }
-        }
-        
-        // تحديث العنوان
-        _loadLocationAddress();
-      }
-    } catch (e) {
-      debugPrint('❌ Error handling location update: $e');
-      debugPrint('❌ Data was: $data');
-    }
-  }
-
   void _showSnackBar(String message, Color color) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -548,8 +411,6 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
   @override
   void dispose() {
-    _socket?.disconnect();
-    _socket?.dispose();
     _busStatusSubscription?.cancel();
     _locationUpdateTimer?.cancel();
     super.dispose();

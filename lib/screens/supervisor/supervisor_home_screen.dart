@@ -1,5 +1,4 @@
 ﻿import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/supervisor_tracking_service.dart';
 import '../../models/absence_model.dart';
 import '../../models/bus_model.dart';
 import '../../models/student_model.dart';
@@ -15,7 +15,6 @@ import '../../models/supervisor_assignment_model.dart';
 import '../../models/user_model.dart';
 import '../../models/notification_model.dart';
 import 'package:location/location.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../widgets/curved_app_bar.dart';
 import '../../widgets/animated_background.dart';
 import '../../widgets/responsive_widgets.dart';
@@ -41,20 +40,17 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
   final NotificationService _notificationService = NotificationService();
-  final Location _locationService = Location();
+  // 📍 التتبع بقى مسؤولية Singleton مستقل عن دورة حياة الشاشة (راجع
+  // supervisor_tracking_service.dart لشرح السبب). الشاشة هنا بس بتعرض
+  // الحالة وبتنادي start/stop، مش بتحتفظ بالـ subscription بنفسها.
+  final SupervisorTrackingService _trackingService = SupervisorTrackingService();
 
   final bool _isLoading = false;
   late Stream<List<StudentModel>> _studentsOnBusStream;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-  
-  // 🔌 Socket.IO للتتبع المباشر
-  IO.Socket? _socket;
+
   bool _isTracking = false;
-  bool _isSocketConnected = false;
-  String? _currentBusId;
-  int _locationUpdatesCount = 0;
-  Timer? _connectionCheckTimer;
   Timer? _systemUpdateDebounce;
 
   // 🚌 عنوان خط السير - يتم تحميله مرة واحدة بدل FutureBuilder متداخل في الـ AppBar
@@ -69,11 +65,14 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
   @override
   void initState() {
     super.initState();
+    // ✅ استعلام التسكين بيتحمّل مرة واحدة فقط هنا، ويُعاد استخدامه في
+    // _loadRouteSubtitle بدل ما يتعمل استعلام منفصل لنفس الداتا (كان بيسبب
+    // طلبين لنفس الـ collection عند فتح الشاشة).
+    final supervisorId = _authService.currentUser?.uid ?? '';
+    _assignmentFuture = _databaseService.getSupervisorAssignmentsSimple(supervisorId);
     _initializeStreams();
     _listenToSystemUpdates();
     _loadRouteSubtitle();
-    final supervisorId = _authService.currentUser?.uid ?? '';
-    _assignmentFuture = _databaseService.getSupervisorAssignmentsSimple(supervisorId);
 
     // تهيئة animation للنبضة
     _pulseController = AnimationController(
@@ -91,14 +90,27 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     // تكرار النبضة
     _pulseController.repeat(reverse: true);
 
+    // 🔄 مزامنة حالة الزرار مع حالة التتبع الفعلية في الـ Singleton (مثلاً
+    // لو المشرف كان بادئ التتبع، راح لشاشة تانية، ورجع تاني - الزرار
+    // لازم يظهر "إيقاف التتبع" مش "بدء التتبع" من الأول).
+    _isTracking = _trackingService.isTracking;
+
+    // 🔔 تسجيل الـ callback: أي تحديث لحالة التتبع من أي مكان (بما فيها
+    // لو اتوقف تلقائيًا) بيحدّث الزرار هنا لو الشاشة لسه موجودة.
+    _trackingService.onTrackingStateChanged = (isTracking) {
+      if (mounted) {
+        setState(() => _isTracking = isTracking);
+      }
+    };
+
     _initLocationTracking();
   }
 
   /// تحميل عنوان خط السير مرة واحدة (بدل FutureBuilder متداخل في كل build)
+  /// بيستخدم نفس _assignmentFuture المحمّل في initState بدل استعلام جديد.
   Future<void> _loadRouteSubtitle() async {
     try {
-      final supervisorId = _authService.currentUser?.uid ?? '';
-      final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
+      final assignments = await _assignmentFuture;
       if (assignments.isEmpty) return;
 
       final assignment = assignments.first;
@@ -119,344 +131,81 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     }
   }
 
+  /// تهيئة خدمة الموقع (أذونات + إعدادات) وربط تحديثات الموقع بتحديث
+  /// مواقع الطلاب الراكبين. التتبع الفعلي (start/stop) بقى في الـ
+  /// Singleton، لكن منطق تحديث الطلاب خاص بالشاشة دي فبيتسجل هنا كـ callback.
   Future<void> _initLocationTracking() async {
-    bool serviceEnabled;
-    PermissionStatus permissionGranted;
-
-    serviceEnabled = await _locationService.serviceEnabled();
-    if (!serviceEnabled) {
-      serviceEnabled = await _locationService.requestService();
-      if (!serviceEnabled) {
-        debugPrint('⚠️ خدمات الموقع غير مفعلة');
-        return;
-      }
-    }
-
-    permissionGranted = await _locationService.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await _locationService.requestPermission();
-      if (permissionGranted != PermissionStatus.granted) {
-        debugPrint('⚠️ صلاحيات الموقع غير ممنوحة');
-        return;
-      }
-    }
-    
-    // ✅ تهيئة Socket.IO
-    await _initSocketConnection();
-
-    // ✅ الاستماع لتغييرات الموقع
-    _locationService.onLocationChanged.listen((LocationData currentLocation) {
-      _updateStudentsLocation(currentLocation);
-      
-      // ✅ إرسال الموقع عبر Socket.IO إذا كان التتبع نشط
-      if (_isTracking && _socket != null && _socket!.connected) {
-        _sendLocationUpdate(currentLocation);
-      }
-    });
-    
-    debugPrint('✅ خدمة الموقع مُهيأة بنجاح');
+    await _trackingService.initialize();
+    _trackingService.onLocationUpdate = _updateStudentsLocation;
   }
-  
-  // 🔌 تهيئة اتصال Socket.IO
-  Future<void> _initSocketConnection() async {
-    try {
-      debugPrint('\n🔌 =======================================');
-      debugPrint('🔌 تهيئة اتصال Socket.IO...');
-      debugPrint('=======================================\n');
-      
-      // 🌐 تحديد عنوان الخادم بناءً على المنصة
-      String serverUrl;
-      
-      // في الويب: استخدم localhost أو عنوان خادمك
-      if (kIsWeb) {
-        // في الـ Production، استبدل هذا بعنوان الخادم الحقيقي
-        serverUrl = 'http://localhost:3000';
-        debugPrint('🌐 منصة الويب: استخدام $serverUrl');
-      } else {
-        // في الموبايل: استخدم IP الكمبيوتر
-        // ⚠️ للحصول على IP:
-        //   - Windows: افتح CMD واكتب ipconfig، ابحث عن IPv4 Address
-        //   - Mac/Linux: افتح Terminal واكتب ifconfig | grep inet
-        serverUrl = 'http://192.168.2.2:3000'; // ⚠️ غيّر هذا الـ IP لـ IP جهازك!
-        debugPrint('📱 منصة الموبايل: استخدام $serverUrl');
-      }
-      
-      _socket = IO.io(
-        serverUrl,
-        IO.OptionBuilder()
-            .setTransports(['websocket'])
-            .enableAutoConnect()
-            .enableReconnection()
-            .setReconnectionDelay(1000)
-            .setReconnectionAttempts(999)
-            .build(),
-      );
 
-      // 🟢 عند الاتصال
-      _socket!.onConnect((_) {
-        debugPrint('✅ Socket.IO متصل بنجاح!');
-        setState(() {
-          _isSocketConnected = true;
-        });
-        
-        // إذا كان التتبع نشط، أعد بدء التتبع
-        if (_isTracking && _currentBusId != null) {
-          _startTracking();
-        }
-      });
-
-      // 🔴 عند قطع الاتصال
-      _socket!.onDisconnect((_) {
-        debugPrint('❌ Socket.IO انقطع الاتصال');
-        setState(() {
-          _isSocketConnected = false;
-        });
-      });
-      
-      // ⚠️ عند حدوث خطأ
-      _socket!.onError((error) {
-        debugPrint('❌ Socket.IO خطأ: $error');
-      });
-      
-      // ✅ تأكيد بدء التتبع
-      _socket!.on('supervisor:trackingStarted', (data) {
-        debugPrint('✅ تم بدء التتبع: $data');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ تم بدء التتبع المباشر'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      });
-      
-      // ✅ تأكيد إيقاف التتبع
-      _socket!.on('supervisor:trackingStopped', (data) {
-        debugPrint('✅ تم إيقاف التتبع: $data');
-        if (mounted) {
-          setState(() {
-            _isTracking = false;
-          });
-        }
-      });
-      
-      // ⚠️ استقبال الأخطاء
-      _socket!.on('error', (error) {
-        debugPrint('❌ خطأ من الخادم: $error');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('خطأ: ${error['message'] ?? 'حدث خطأ غير متوقع'}'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      });
-      
-      // بدء مراقبة الاتصال
-      _connectionCheckTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-        if (_socket != null && mounted) {
-          final isConnected = _socket!.connected;
-          if (_isSocketConnected != isConnected) {
-            setState(() {
-              _isSocketConnected = isConnected;
-            });
-          }
-        }
-      });
-      
-      debugPrint('✅ Socket.IO مُهيأ بنجاح');
-      
-    } catch (e) {
-      debugPrint('❌ خطأ في تهيئة Socket.IO: $e');
-    }
-  }
-  
   // 🚀 بدء التتبع
   Future<void> _startTracking() async {
-    try {
-      // الحصول على busId من assignment
-      final supervisorId = _authService.currentUser?.uid ?? '';
-      if (supervisorId.isEmpty) {
-        debugPrint('❌ معرف المشرف غير موجود');
-        return;
-      }
-      
-      final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
-      if (assignments.isEmpty) {
-        debugPrint('❌ لا يوجد assignment للمشرف');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('❌ لا يوجد باص مُخصص لك'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-      
-      final assignment = assignments.first;
-      _currentBusId = assignment.busId;
-      
-      if (_currentBusId == null || _currentBusId!.isEmpty) {
-        debugPrint('❌ معرف الباص غير موجود');
-        return;
-      }
-      
-      // الحصول على الموقع الحالي
-      final location = await _locationService.getLocation();
-      if (location.latitude == null || location.longitude == null) {
-        debugPrint('❌ لم نتمكن من الحصول على الموقع');
-        return;
-      }
-      
-      debugPrint('\n🚀 =======================================');
-      debugPrint('🚀 بدء التتبع المباشر');
-      debugPrint('🆔 Bus ID: $_currentBusId');
-      debugPrint('👤 Supervisor ID: $supervisorId');
-      debugPrint('📍 الموقع: [${location.latitude}, ${location.longitude}]');
-      debugPrint('=======================================\n');
-      
-      // التحقق من اتصال Socket.IO
-      if (_socket == null || !_socket!.connected) {
-        debugPrint('⚠️ Socket.IO غير متصل، محاولة إعادة الاتصال...');
-        await _initSocketConnection();
-        
-        // انتظر قليلاً للاتصال
-        await Future.delayed(const Duration(seconds: 2));
-        
-        if (_socket == null || !_socket!.connected) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('❌ فشل الاتصال بالخادم، يُرجى المحاولة مرة أخرى'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
-        }
-      }
-      
-      // إرسال حدث بدء التتبع
-      _socket!.emit('supervisor:startTracking', {
-        'busId': _currentBusId,
-        'supervisorId': supervisorId,
-        'latitude': location.latitude,
-        'longitude': location.longitude,
-      });
-      
-      setState(() {
-        _isTracking = true;
-        _locationUpdatesCount = 0;
-      });
-      
-      // تحديث Firestore
-      await FirebaseFirestore.instance
-          .collection('buses')
-          .doc(_currentBusId)
-          .update({
-        'isTracking': true,
-        'trackingStartedAt': FieldValue.serverTimestamp(),
-      });
-      
-      debugPrint('✅ تم بدء التتبع بنجاح!');
-      
-    } catch (e) {
-      debugPrint('❌ خطأ في بدء التتبع: $e');
+    final supervisorId = _authService.currentUser?.uid ?? '';
+    if (supervisorId.isEmpty) {
+      debugPrint('❌ معرف المشرف غير موجود');
+      return;
+    }
+
+    final assignments = await _databaseService.getSupervisorAssignmentsSimple(supervisorId);
+    if (assignments.isEmpty) {
+      debugPrint('❌ لا يوجد assignment للمشرف');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ: $e'),
+          const SnackBar(
+            content: Text('❌ لا يوجد باص مُخصص لك'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    }
-  }
-  
-  // 🛑 إيقاف التتبع
-  Future<void> _stopTracking() async {
-    if (!_isTracking || _currentBusId == null) return;
-    
-    try {
-      debugPrint('\n🛑 =======================================');
-      debugPrint('🛑 إيقاف التتبع المباشر');
-      debugPrint('=======================================\n');
-      
-      // إرسال حدث إيقاف التتبع
-      if (_socket != null && _socket!.connected) {
-        _socket!.emit('supervisor:stopTracking', {
-          'busId': _currentBusId,
-        });
-      }
-      
-      setState(() {
-        _isTracking = false;
-      });
-      
-      // تحديث Firestore
-      await FirebaseFirestore.instance
-          .collection('buses')
-          .doc(_currentBusId)
-          .update({
-        'isTracking': false,
-        'trackingStoppedAt': FieldValue.serverTimestamp(),
-      });
-      
-      debugPrint('✅ تم إيقاف التتبع بنجاح!');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ تم إيقاف التتبع المباشر'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-      
-    } catch (e) {
-      debugPrint('❌ خطأ في إيقاف التتبع: $e');
-    }
-  }
-  
-  // 📍 إرسال تحديث الموقع
-  void _sendLocationUpdate(LocationData location) {
-    if (_socket == null || 
-        !_socket!.connected || 
-        !_isTracking || 
-        _currentBusId == null ||
-        location.latitude == null ||
-        location.longitude == null) {
       return;
     }
-    
-    _locationUpdatesCount++;
-    
-    // طباعة كل 10 تحديثات فقط لتجنب الازدحام في اللوج
-    if (_locationUpdatesCount % 10 == 0) {
-      debugPrint('📍 إرسال تحديث موقع #$_locationUpdatesCount');
-      debugPrint('   الموقع: [${location.latitude!.toFixed(6)}, ${location.longitude!.toFixed(6)}]');
-      debugPrint('   السرعة: ${location.speed?.toStringAsFixed(1) ?? '0'} m/s');
+
+    final busId = assignments.first.busId;
+    if (busId.isEmpty) {
+      debugPrint('❌ معرف الباص غير موجود');
+      return;
     }
-    
-    _socket!.emit('supervisor:updateLocation', {
-      'busId': _currentBusId,
-      'latitude': location.latitude,
-      'longitude': location.longitude,
-      'speed': (location.speed ?? 0) * 3.6, // تحويل من m/s إلى km/h
-      'heading': location.heading ?? 0,
-    });
+
+    final started = await _trackingService.startTracking(
+      busId: busId,
+      supervisorId: supervisorId,
+    );
+
+    if (!mounted) return;
+
+    if (started) {
+      setState(() => _isTracking = true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ تعذّر بدء التتبع - تأكد من تفعيل خدمة الموقع'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // 🛑 إيقاف التتبع
+  Future<void> _stopTracking() async {
+    await _trackingService.stopTracking();
+
+    if (!mounted) return;
+    setState(() => _isTracking = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✅ تم إيقاف التتبع المباشر'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _updateStudentsLocation(LocationData locationData) async {
     final supervisorId = _authService.currentUser?.uid ?? '';
     if (supervisorId.isEmpty) return;
+    if (locationData.latitude == null || locationData.longitude == null) return;
 
     final students = await _loadSupervisorStudents(supervisorId);
     final batch = FirebaseFirestore.instance.batch();
@@ -474,15 +223,34 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
       await batch.commit();
       debugPrint('Updated location for students on the bus.');
     }
+
+    // 🔄 تحديث خفيف للواجهة بس عشان عداد "تحديثات الموقع" يتحدث (العداد
+    // الفعلي محسوب ومتخزن جوه الـ Singleton - هنا بس بنعمل rebuild
+    // للشاشة عشان تقرأ القيمة الجديدة، بدون أي منطق مكرر).
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
-    _stopTracking();
-    _connectionCheckTimer?.cancel();
+    // ⚠️ لا يجب استدعاء _trackingService.stopTracking() هنا. dispose()
+    // بينفّذ في أي وقت الشاشة تتشال من الشجرة (مثلاً المشرف فتح "الملف
+    // الشخصي" أو أي شاشة تانية جوه التطبيق)، مش بس لما التطبيق يتقفل
+    // فعليًا. لو أوقفنا التتبع هنا، هيبقى معنى الـ background mode ملغي
+    // تمامًا - أي تنقل عادي جوه التطبيق كان هيوقف بث الموقع لولي الأمر.
+    // التتبع دلوقتي مستقل عن دورة حياة الشاشة (عايش في Singleton)،
+    // وبيتوقف فقط بفعل صريح من المشرف (زرار "إيقاف التتبع").
+    //
+    // اللي لازم نعمله هنا بس: نفك ربط الـ callbacks اللي بتشاور على
+    // context/setState بتاع الشاشة دي، عشان الـ Singleton ميحتفظش
+    // بمرجع لشاشة اتشالت (memory leak / setState after dispose).
+    if (identical(_trackingService.onLocationUpdate, _updateStudentsLocation)) {
+      _trackingService.onLocationUpdate = null;
+    }
+    _trackingService.onTrackingStateChanged = null;
     _systemUpdateDebounce?.cancel();
-    _socket?.dispose();
     super.dispose();
   }
 
@@ -495,8 +263,17 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
     // الـ polling بعد أول محاولة فاضية بدل ما نكرر نفس الاستعلام الفاشل
     // كل بضع ثواني للأبد - ده كان بيسبب rebuild storm مستمر ويصطدم
     // مع عمليات الـ layout (semantics assertion errors).
+    // ✅ Stream.periodic بيستنى فترة الـ interval كاملة (15 ثانية) قبل ما
+    // يطلق أول event - وده كان سبب تأخر ظهور بيانات الطلاب لحظة فتح الشاشة.
+    // بنستخدم Stream.multi عشان نطلق تحميل فوري (tick=0) وبعدين نكمل
+    // بنفس تكرار الـ 15 ثانية زي ما كان.
     int emptyAttempts = 0;
-    _studentsOnBusStream = Stream.periodic(const Duration(seconds: 15))
+    _studentsOnBusStream = Stream<int>.multi((controller) {
+      controller.add(0);
+      final timer = Stream.periodic(const Duration(seconds: 15))
+          .listen((_) => controller.add(0));
+      controller.onCancel = timer.cancel;
+    })
         .asyncMap((_) => _loadSupervisorStudents(supervisorId))
         .takeWhile((students) {
           if (students.isEmpty) {
@@ -702,10 +479,10 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                           height: 8,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: _isSocketConnected ? Colors.green : Colors.red,
+                            color: _isTracking ? Colors.green : Colors.grey,
                             boxShadow: [
                               BoxShadow(
-                                color: (_isSocketConnected ? Colors.green : Colors.red).withOpacity(0.5),
+                                color: (_isTracking ? Colors.green : Colors.grey).withOpacity(0.5),
                                 blurRadius: 6,
                                 spreadRadius: 2,
                               ),
@@ -714,7 +491,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _isSocketConnected ? 'متصل بالخادم' : 'غير متصل',
+                          _isTracking ? 'يُرسل الموقع بشكل مستمر' : 'التتبع متوقف',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[600],
@@ -787,7 +564,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '$_locationUpdatesCount',
+                          '${_trackingService.locationUpdatesCount}',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -855,9 +632,7 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
             width: double.infinity,
             height: 56,
             child: ElevatedButton(
-              onPressed: _isSocketConnected
-                  ? (_isTracking ? _stopTracking : _startTracking)
-                  : null,
+              onPressed: _isTracking ? _stopTracking : _startTracking,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isTracking ? Colors.red : Colors.green,
                 foregroundColor: Colors.white,
@@ -888,38 +663,6 @@ class _SupervisorHomeScreenState extends State<SupervisorHomeScreen>
             ),
           ),
 
-          // Warning if not connected
-          if (!_isSocketConnected) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: Colors.orange[700],
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'غير متصل بالخادم. جارٍ إعادة المحاولة...',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.orange[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );

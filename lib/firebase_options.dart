@@ -51,28 +51,28 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCxUs93mPDENri0o6ARCDOm5p_m40D-y78',
-    appId: '1:804926032268:android:6450c694a8bbc705982ea9',
+    appId: '1:804926032268:android:b2e1c838d560cc27982ea9',
     messagingSenderId: '804926032268',
     projectId: 'mybus-5a992',
     storageBucket: 'mybus-5a992.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCxUs93mPDENri0o6ARCDOm5p_m40D-y78',
-    appId: '1:804926032268:ios:6450c694a8bbc705982ea9',
+    apiKey: 'AIzaSyDFiDECxtIPU4GLI1vz5YgZ6DixsjPwR2c',
+    appId: '1:804926032268:ios:7cafec4cde0a55fe982ea9',
     messagingSenderId: '804926032268',
     projectId: 'mybus-5a992',
     storageBucket: 'mybus-5a992.firebasestorage.app',
-    iosBundleId: 'com.example.mybus',
+    iosBundleId: 'com.kidsbus.mybus',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCxUs93mPDENri0o6ARCDOm5p_m40D-y78',
-    appId: '1:804926032268:ios:6450c694a8bbc705982ea9',
+    apiKey: 'AIzaSyDFiDECxtIPU4GLI1vz5YgZ6DixsjPwR2c',
+    appId: '1:804926032268:ios:7cafec4cde0a55fe982ea9',
     messagingSenderId: '804926032268',
     projectId: 'mybus-5a992',
     storageBucket: 'mybus-5a992.firebasestorage.app',
-    iosBundleId: 'com.example.mybus',
+    iosBundleId: 'com.kidsbus.mybus',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

@@ -35,6 +35,10 @@ const CHANNELS = {
  * @param {object} [params.data={}] - بيانات إضافية تتبعت مع الإشعار
  * @param {'high'|'normal'} [params.priority='high']
  * @param {string} [params.color='#1E88E5'] - لون الإشعار (اللون الأساسي للتطبيق)
+ * @param {string} [params.deduplicationKey] - لو موصول من fcm_queue (الفلاتر كتبته
+ *   وحفظت نسخة in-app بنفس الـ ID فورًا وقت الإرسال)، بنستخدمه كـ doc ID هنا كمان
+ *   عشان الكتابة تبقى idempotent (تحديث/تأكيد نفس السجل، مش تكرار). لو مش موصول
+ *   (إشعار بيتبعت مباشرة من الباك اند من غير مرور بالطابور)، بنعمل add() عادي.
  * @returns {Promise<{sent: boolean, messageId?: string, reason?: string}>}
  */
 async function sendFcmNotification(admin, db, params) {
@@ -48,6 +52,7 @@ async function sendFcmNotification(admin, db, params) {
     data = {},
     priority = 'high',
     color = '#1E88E5',
+    deduplicationKey,
   } = params;
 
   // تحويل كل قيم data لـ string (FCM data payload بيتطلب ده)
@@ -57,10 +62,14 @@ async function sendFcmNotification(admin, db, params) {
     stringData[key] = typeof value === 'string' ? value : JSON.stringify(value);
   }
 
-  // حفظ نسخة in-app دائمًا (حتى لو الـ push فشل أو مفيش token)
+  // حفظ نسخة in-app دائمًا (حتى لو الـ push فشل أو مفيش token).
+  // لو معانا deduplicationKey (جاي من fcm_queue) بنستخدمه كـ doc ID مع merge:true
+  // عشان لو الفلاتر كانت خلاص كتبت نسخة in-app فورية بنفس الـ ID وقت الإرسال،
+  // الكتابة هنا تتأكد/تحدّث نفس السجل مش تعمل تكرار. لو مفيش key (إشعار مباشر
+  // من الباك اند من غير طابور)، بنرجع للسلوك القديم add() بـ ID عشوائي.
   const saveInApp = async () => {
     try {
-      await db.collection('notifications').add({
+      const payload = {
         title,
         body,
         recipientId,
@@ -68,7 +77,15 @@ async function sendFcmNotification(admin, db, params) {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         isRead: false,
         data: stringData,
-      });
+      };
+      if (deduplicationKey) {
+        await db.collection('notifications').doc(deduplicationKey).set(
+          { id: deduplicationKey, ...payload },
+          { merge: true }
+        );
+      } else {
+        await db.collection('notifications').add(payload);
+      }
     } catch (e) {
       console.error('   ⚠️ فشل حفظ نسخة in-app:', e.message);
     }

@@ -143,6 +143,37 @@ class SimpleFCMService {
         playSound: true,
         showBadge: true,
       ),
+      // القنوات الثلاث دي كانت مستخدمة في notification_sender_service.dart
+      // (شكاوى، غياب، استبيانات، ربط/حذف طلاب) من غير ما تكون معرّفة هنا،
+      // فكانت الإشعارات دي بتتبعت للـ fcm_queue بنجاح لكن نظام التشغيل
+      // كان بيرفض عرضها لأن الـ channel ID مش موجود على الجهاز.
+      const AndroidNotificationChannel(
+        'admin_notifications',
+        'إشعارات الإدارة',
+        description: 'إشعارات خاصة بالإدارة (شكاوى، غياب، استبيانات)',
+        importance: Importance.max,
+        enableVibration: true,
+        playSound: true,
+        showBadge: true,
+      ),
+      const AndroidNotificationChannel(
+        'parent_notifications',
+        'إشعارات أولياء الأمور',
+        description: 'إشعارات خاصة بأولياء الأمور (ربط الطلاب، تحديثات)',
+        importance: Importance.max,
+        enableVibration: true,
+        playSound: true,
+        showBadge: true,
+      ),
+      const AndroidNotificationChannel(
+        'supervisor_notifications',
+        'إشعارات المشرفين',
+        description: 'إشعارات خاصة بالمشرفين',
+        importance: Importance.max,
+        enableVibration: true,
+        playSound: true,
+        showBadge: true,
+      ),
     ];
 
     for (final channel in channels) {
@@ -379,7 +410,15 @@ class SimpleFCMService {
     }
   }
 
-  /// إرسال إشعار لمستخدم محدد
+  /// إرسال إشعار لمستخدم محدد. بيكتب في مكانين في نفس اللحظة:
+  /// 1) fcm_queue - عشان الباك اند (Windows service) يبعت push فعلي.
+  /// 2) notifications - نسخة in-app فورية، مش منتظرة الباك اند خالص.
+  /// كده لو الـ Windows service واقع أو بطيء أو الإنترنت مقطوع عنده،
+  /// الإشعار برضو بيتخزن ويظهر في السجل جوه التطبيق أول ما المستلم
+  /// يفتحه - الضمان بقى من التطبيق نفسه مش معتمد على سيرفر خارجي.
+  /// نفس deduplicationKey بيتحط كـ doc ID لـ notifications عشان لو
+  /// الباك اند حفظ نسخة تانية بعدين (نجح الإرسال أخيرًا)، الكتابة
+  /// تبقى idempotent ومفيش تكرار في السجل.
   Future<void> sendNotificationToUser({
     required String userId,
     required String title,
@@ -400,24 +439,42 @@ class SimpleFCMService {
         data: data,
       );
 
-      // كل إرسال يمر عبر الطابور فقط. الـ Cloud Function هي المصدر الوحيد
-      // لحفظ سجل الإشعار وإرساله، لذلك لا توجد سجلات متكررة بين التطبيق والخادم.
-      await _firestore.collection('fcm_queue').add({
+      final queueData = {
+        ...?data,
+        'channelId': resolvedChannelId,
+        'type': type,
+      };
+
+      final batch = _firestore.batch();
+
+      final queueRef = _firestore.collection('fcm_queue').doc();
+      batch.set(queueRef, {
         'recipientId': userId,
         'title': title,
         'body': body,
-        'data': {
-          ...?data,
-          'channelId': resolvedChannelId,
-          'type': type,
-        },
+        'data': queueData,
         'deduplicationKey': deduplicationKey,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'priority': 'high',
       });
 
-      debugPrint('✅ Notification queued for user: $userId');
+      final notificationRef =
+          _firestore.collection('notifications').doc(deduplicationKey);
+      batch.set(notificationRef, {
+        'id': deduplicationKey,
+        'recipientId': userId,
+        'title': title,
+        'body': body,
+        'type': type,
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'data': queueData,
+      });
+
+      await batch.commit();
+
+      debugPrint('✅ Notification queued and saved in-app for user: $userId');
     } catch (e) {
       debugPrint('❌ Error sending notification to user $userId: $e');
       rethrow;
@@ -547,6 +604,12 @@ class SimpleFCMService {
         return 'إشعارات الباص';
       case 'emergency_notifications':
         return 'تنبيهات الطوارئ';
+      case 'admin_notifications':
+        return 'إشعارات الإدارة';
+      case 'parent_notifications':
+        return 'إشعارات أولياء الأمور';
+      case 'supervisor_notifications':
+        return 'إشعارات المشرفين';
       default:
         return 'إشعارات MyBus';
     }
@@ -561,6 +624,12 @@ class SimpleFCMService {
         return 'إشعارات ركوب ونزول الباص';
       case 'emergency_notifications':
         return 'تنبيهات طوارئ مهمة وعاجلة';
+      case 'admin_notifications':
+        return 'إشعارات خاصة بالإدارة';
+      case 'parent_notifications':
+        return 'إشعارات خاصة بأولياء الأمور';
+      case 'supervisor_notifications':
+        return 'إشعارات خاصة بالمشرفين';
       default:
         return 'إشعارات عامة لتطبيق MyBus';
     }

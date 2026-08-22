@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -990,13 +991,15 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
 
       await _databaseService.recordTrip(trip);
 
-      if (action == TripAction.boardBus || action == TripAction.boardBusToSchool || action == TripAction.boardBusToHome) {
-        await _checkAndSendTripStartNotification(student);
-      }
-
-      await _sendCustomNotificationWithSound(student, action);
-
       _updateStudentsCounter(action);
+
+      // نعرض نجاح العملية للمشرف فورًا هنا. باقي الإشعارات (لولي الأمر
+      // ولباقي أولياء أمور الخط عند أول رحلة في اليوم) بتتبعت في الخلفية
+      // من غير ما نستنى نتيجتها - كانت قبل كده كلها await متسلسل، وده
+      // كان بيسبب تعليق طويل خصوصًا في _sendTripStartNotificationToAllParents
+      // (بتلف على كل طلاب الخط وترسل إشعار واحد واحد بالتتابع)، فكان
+      // المشرف بيحس إن الشاشة "واقفة" فترة طويلة قبل ما يشوف أي تأكيد.
+      unawaited(_sendPostActionNotifications(student, action));
 
       _showActionSuccessDialog(updatedStudent, action);
 
@@ -1008,6 +1011,26 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
         _lastScannedCode = null;
       });
       _resumeScanning();
+    }
+  }
+
+  /// إرسال كل إشعارات ما بعد تسجيل الرحلة (إشعار ولي أمر الطالب + إشعار
+  /// بدء الرحلة لباقي أولياء أمور الخط لو دي أول رحلة في اليوم) بدون
+  /// حجب واجهة المشرف. مفصولة في دالة مستقلة عشان تتعمل عليها unawaited()
+  /// بأمان مع الحفاظ على معالجة الأخطاء الداخلية لكل جزء على حدة.
+  Future<void> _sendPostActionNotifications(StudentModel student, TripAction action) async {
+    try {
+      if (action == TripAction.boardBus || action == TripAction.boardBusToSchool || action == TripAction.boardBusToHome) {
+        await _checkAndSendTripStartNotification(student);
+      }
+    } catch (e) {
+      debugPrint('❌ Error sending trip start notification: $e');
+    }
+
+    try {
+      await _sendCustomNotificationWithSound(student, action);
+    } catch (e) {
+      debugPrint('❌ Error sending student notification: $e');
     }
   }
 
@@ -1101,21 +1124,31 @@ class _QRScannerScreenState extends State<QRScannerScreen> with TickerProviderSt
           .where('isActive', isEqualTo: true)
           .get();
 
+      // نبعت لكل أولياء الأمور بالتوازي مش بالتتابع (await واحد واحد جوه
+      // for loop كان بياخد وقت طويل جدًا لو الخط فيه عدد كبير من الطلاب،
+      // لأن كل إشعار بينتظر اللي قبله). فشل إشعار واحد ما بيوقفش الباقي.
+      final futures = <Future<void>>[];
       for (final studentDoc in studentsSnapshot.docs) {
         final studentData = studentDoc.data();
         final parentId = studentData['parentId'];
 
         if (parentId != null && parentId.isNotEmpty) {
-          await _notificationService.sendTripStartedNotification(
-            tripId: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-            busNumber: busRoute,
-            affectedUsers: [parentId],
-            recipientId: parentId,
-            studentName: studentData['name'] ?? 'الطالب',
-            timestamp: DateTime.now(),
+          futures.add(
+            _notificationService.sendTripStartedNotification(
+              tripId: 'trip_${DateTime.now().millisecondsSinceEpoch}',
+              busNumber: busRoute,
+              affectedUsers: [parentId],
+              recipientId: parentId,
+              studentName: studentData['name'] ?? 'الطالب',
+              timestamp: DateTime.now(),
+            ).catchError((e) {
+              debugPrint('❌ Error sending trip start notification to parent $parentId: $e');
+            }),
           );
         }
       }
+
+      await Future.wait(futures);
 
       debugPrint('✅ Trip start notifications sent to all parents on route: $busRoute');
     } catch (e) {

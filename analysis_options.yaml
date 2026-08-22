@@ -1,0 +1,12 @@
+# هذا الملف يحدد إعدادات التحليل الساكن (static analysis) للمشروع.
+# راجع: https://dart.dev/guides/language/analysis-options
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # ملفات قديمة/غير مستخدمة تم أرشفتها أثناء فحص جاهزية النشر
+    # (راجع _archived_dead_code/README.md) - مستبعدة من البناء أصلاً
+    # كونها خارج lib/، لكن نستبعدها هنا أيضاً لتبقى نتيجة
+    # flutter analyze نظيفة تماماً من أي أخطاء.
+    - "_archived_dead_code/**"

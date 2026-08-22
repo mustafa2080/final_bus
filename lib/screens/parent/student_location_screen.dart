@@ -158,7 +158,9 @@ class _StudentLocationScreenState extends State<StudentLocationScreen> {
                 // معلومات الموقع
                 if (_studentLocation != null)
                   Positioned(
-                    bottom: 20,
+                    // بنستخدم SafeArea padding عشان الكارت متتغطاش بالـ
+                    // home indicator أو أي نتوء سفلي في الشاشة
+                    bottom: 20 + MediaQuery.of(context).padding.bottom,
                     left: 20,
                     right: 20,
                     child: _buildLocationInfoCard(),
@@ -166,7 +168,7 @@ class _StudentLocationScreenState extends State<StudentLocationScreen> {
                 
                 // أزرار التحكم
                 Positioned(
-                  top: 20,
+                  top: 20 + MediaQuery.of(context).padding.top,
                   right: 20,
                   child: Column(
                     children: [

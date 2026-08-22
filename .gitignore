@@ -160,3 +160,13 @@ backend/*firebase-adminsdk*.json
 
 # Local system tools (Windows service manager, etc.) - not project code
 backend/_service_tools/
+
+# Archived dead code (kept locally for reference, excluded from analysis/build)
+/_archived_dead_code/
+
+# Android signing keystore - NEVER commit. Anyone with this file + password
+# can sign a fake update to your app that Android will trust as legitimate.
+*.jks
+*.keystore
+android/keystore.properties
+android/key.properties

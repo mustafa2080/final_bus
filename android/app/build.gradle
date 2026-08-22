@@ -5,8 +5,14 @@ plugins {
     id "com.google.gms.google-services"
 }
 
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace = "com.example.mybus"
+    namespace = "com.kidsbus.mybus"
     compileSdk = 36
     compileSdkVersion = 36
     ndkVersion = "28.2.13676358"
@@ -52,16 +58,19 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.mybus"
+        applicationId = "com.kidsbus.mybus"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
         multiDexEnabled = true
 
-        // تحسينات لتقليل حجم التطبيق والسرعة - جهاز واحد فقط
+        // دعم المعماريات الشائعة: arm64-v8a للأجهزة الحديثة (64-bit) و
+        // armeabi-v7a للأجهزة الأقدم/الأرخص المنتشرة في السوق. استبعاد
+        // armeabi-v7a كان سيمنع نسبة لا بأس بها من مستخدمي أندرويد
+        // القدامى من تحميل/تشغيل التطبيق من المتجر.
         ndk {
-            abiFilters 'arm64-v8a'
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
         }
 
         // تحسينات إضافية للسرعة
@@ -72,6 +81,15 @@ android {
 
         // تسريع البناء للتطوير
         resConfigs "en", "ar"
+    }
+
+    signingConfigs {
+        release {
+            keyAlias = keystoreProperties['keyAlias']
+            keyPassword = keystoreProperties['keyPassword']
+            storeFile = keystoreProperties['storeFile'] ? file("${project.projectDir}/${keystoreProperties['storeFile']}") : null
+            storePassword = keystoreProperties['storePassword']
+        }
     }
 
     buildTypes {
@@ -90,12 +108,13 @@ android {
             jniDebuggable = false
         }
         release {
-            signingConfig = signingConfigs.debug
-            minifyEnabled = false
-            shrinkResources = false
+            signingConfig = signingConfigs.release
+            minifyEnabled = true
+            shrinkResources = true
             debuggable = false
             crunchPngs = true
             zipAlignEnabled = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

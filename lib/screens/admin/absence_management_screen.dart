@@ -16,6 +16,8 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
     with SingleTickerProviderStateMixin {
   final DatabaseService _databaseService = DatabaseService();
   late TabController _tabController;
+  final ScrollController _recentNotificationsScrollController = ScrollController();
+  final ScrollController _parentAbsencesScrollController = ScrollController();
 
   @override
   void initState() {
@@ -26,6 +28,8 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _recentNotificationsScrollController.dispose();
+    _parentAbsencesScrollController.dispose();
     super.dispose();
   }
 
@@ -323,7 +327,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                 crossAxisCount: 4, // زيادة عدد الأعمدة لتوفير مساحة
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 1.2, // تقليل الارتفاع
+                childAspectRatio: 0.75, // تعديل النسبة لمنع overflow المحتوى
                 children: [
                   _buildStatItem(
                     'اليوم',
@@ -504,10 +508,12 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                         : 900,
                   ),
                   child: Scrollbar(
+                    controller: _recentNotificationsScrollController,
                     thumbVisibility: true,
                     thickness: 6,
                     radius: const Radius.circular(3),
                     child: ListView.builder(
+                      controller: _recentNotificationsScrollController,
                       padding: const EdgeInsets.all(16),
                       itemCount: recentParentNotifications.length + 1, // +1 for bottom indicator
                       itemBuilder: (context, index) {
@@ -640,10 +646,12 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                         : 900,
                   ),
                   child: Scrollbar(
+                    controller: _parentAbsencesScrollController,
                     thumbVisibility: true,
                     thickness: 6,
                     radius: const Radius.circular(3),
                     child: ListView.builder(
+                      controller: _parentAbsencesScrollController,
                       padding: const EdgeInsets.all(16),
                       itemCount: parentAbsences.length + 1, // +1 for bottom indicator
                       itemBuilder: (context, index) {
@@ -840,10 +848,11 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
 
   Widget _buildEmptyState(String title, String subtitle, IconData icon, Color color) {
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(32),

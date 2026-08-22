@@ -555,21 +555,173 @@ let notificationsSent = 0;
 let notificationsFailed = 0;
 
 // ============================================
-// ⚠️ تم إيقاف مراقبة fcm_queue هنا عن قصد (17/8/2026)
+// 🔥 الأهم: مراقبة fcm_queue لإرسال الإشعارات الحقيقية
 // ============================================
-// السبب: Cloud Function processFcmQueue (في functions/index.js، منشورة
-// على Firebase) بقت بتراقب fcm_queue وبتبعت الـ push بنفس الطريقة بالظبط،
-// وكانت شغالة بالتوازي مع الـ listener اللي هنا على Railway - فكل عنصر في
-// الـ queue كان بيتبعت مرتين (مرة من هنا ومرة من الـ Cloud Function) وده
-// كان بيسبب تكرار الإشعار عند المستخدم.
-//
-// الـ Cloud Function هي المصدر الوحيد المعتمد دلوقتي لمعالجة fcm_queue،
-// ومعاها حماية transaction (notification_deliveries) ضد التكرار.
-// لو حبينا نرجع نستخدم الـ listener ده تاني يوم ما، لازم الأول نلغي
-// (unpublish) الـ Cloud Function processFcmQueue عشان نتجنب نفس المشكلة.
-//
-// باقي الـ listeners (absences, complaints, students) لسه شغالين عادي
-// زي ما هما، لأنهم مش موجودين في الـ Cloud Functions أصلاً.
+// ملحوظة (17/8/2026): تبين إن Railway وCloud Functions مش شغالين أصلاً في
+// هذا الإعداد - المصدر الوحيد اللي بيبعت push حقيقي هو تشغيل هذا الملف
+// يدويًا (node index.js) من التيرمينال. المشكلة اللي سببت التكرار قبل
+// كده مش كانت Cloud Function متوازية، لكن احتمال تشغيل أكتر من نسخة من
+// هذا الملف في نفس الوقت بالغلط (نافذة تيرمينال قديمة منسية + نافذة
+// جديدة). عشان كده أضفنا حماية transaction تحت (claimQueueItem) بتضمن
+// إن كل عنصر في fcm_queue يتعالج مرة واحدة بس مهما كان عدد النسخ الشغالة
+// بالتوازي - بدل ما نعتمد على الانضباط اليدوي في تشغيل نسخة واحدة بس.
+const fcmQueueRef = db.collection('fcm_queue');
+
+console.log('👀 بدء مراقبة fcm_queue...');
+
+/// يحاول "يحجز" معالجة عنصر الـ queue عن طريق إنشاء مستند في
+/// notification_deliveries بمفتاح deduplicationKey داخل transaction.
+/// لو المستند موجود بالفعل (نسخة تانية من هذا الملف سبقتنا وحجزته)،
+/// الـ transaction بترجع false ومنعالجش العنصر تاني - كده مهما كان
+/// عدد نسخ node index.js الشغالة بالتوازي، كل حدث بيتبعت مرة واحدة بس.
+async function claimQueueItem(deduplicationKey, queueId, recipientId) {
+  if (!deduplicationKey) return true; // مفيش مفتاح؟ نكمل عادي (توافق قديم)
+  const deliveryRef = db.collection('notification_deliveries').doc(deduplicationKey);
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const delivery = await transaction.get(deliveryRef);
+      if (delivery.exists) return false;
+      transaction.set(deliveryRef, {
+        queueId,
+        recipientId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 2 * 60 * 1000),
+      });
+      return true;
+    });
+  } catch (error) {
+    console.error('❌ خطأ في حجز عنصر fcm_queue:', error.message);
+    return true; // فشل الحجز نفسه (مش تكرار) - كمل بدل ما نضيع إشعار
+  }
+}
+
+fcmQueueRef.onSnapshot(async (snapshot) => {
+  if (snapshot.empty) {
+    console.log('📭 fcm_queue فارغة - لا توجد إشعارات في الانتظار');
+  }
+  
+  snapshot.docChanges().forEach(async (change) => {
+    if (change.type === 'added') {
+      const queueItem = change.doc.data();
+      const queueId = change.doc.id;
+      
+      console.log('\n🔔 ===========================================');
+      console.log('📥 إشعار جديد في fcm_queue!');
+      console.log('🆔 Queue ID:', queueId);
+      console.log('👤 المستلم:', queueItem.recipientId);
+      console.log('📝 العنوان:', queueItem.title);
+      console.log('💬 المحتوى:', queueItem.body);
+      console.log('📊 Status:', queueItem.status);
+      console.log('===========================================\n');
+      
+      // تحقق من أن الإشعار pending وليس مرسل
+      if (queueItem.status !== 'pending') {
+        console.log(`⏭️  تخطي الإشعار - الحالة: ${queueItem.status}`);
+        return;
+      }
+
+      // حجز العنصر قبل أي معالجة - بيمنع أي نسخة تانية شغالة بالتوازي
+      // من إرسال نفس الإشعار تاني (شوف الشرح فوق claimQueueItem)
+      const claimed = await claimQueueItem(
+        queueItem.deduplicationKey,
+        queueId,
+        queueItem.recipientId
+      );
+      if (!claimed) {
+        console.log(`⏭️ إشعار مكرر تم تجاهله (نسخة تانية شغالة سبقتنا): ${queueId}`);
+        await db.collection('fcm_queue').doc(queueId).update({
+          status: 'skipped_duplicate',
+          skippedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }).catch(() => {});
+        return;
+      }
+      
+      try {
+        // تحديث الحالة إلى processing
+        console.log('⚙️  تغيير الحالة إلى processing...');
+        await db.collection('fcm_queue').doc(queueId).update({
+          status: 'processing',
+          processedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // جلب FCM Token للمستخدم المستهدف
+        console.log('🔍 البحث عن المستخدم في Firestore...');
+        const userDoc = await db.collection('users').doc(queueItem.recipientId).get();
+        
+        if (!userDoc.exists) {
+          console.log(`❌ المستخدم غير موجود: ${queueItem.recipientId}`);
+          await db.collection('fcm_queue').doc(queueId).update({
+            status: 'failed',
+            error: 'User not found',
+            failedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          notificationsFailed++;
+          return;
+        }
+        
+        const userData = userDoc.data();
+        console.log('✅ المستخدم موجود:', userData.email || userData.name || queueItem.recipientId);
+        
+        const fcmToken = userData.fcmToken;
+        
+        // ملحوظة: الحفظ في notifications (in-app) بيحصل جوه sendFcmNotification
+        // نفسها، سواء التوكن موجود أو لأ - فمفيش داعي نكرره هنا زي قبل كده.
+        // بنمرر deduplicationKey (لو موجودة في الـ queue item) عشان الكتابة هنا
+        // تتطابق مع النسخة اللي الفلاتر كتبتها فورًا وقت الإرسال - مفيش تكرار.
+        const result = await sendFcmNotification(admin, db, {
+          recipientId: queueItem.recipientId,
+          fcmToken,
+          title: queueItem.title || 'إشعار جديد',
+          body: queueItem.body || '',
+          type: queueItem.data?.type || 'general',
+          channelId: queueItem.data?.channelId || CHANNELS.GENERAL,
+          data: queueItem.data || {},
+          priority: queueItem.priority === 'high' ? 'high' : 'normal',
+          deduplicationKey: queueItem.deduplicationKey,
+        });
+
+        if (result.sent) {
+          console.log('✅ ✅ ✅ إشعار مرسل بنجاح! ✅ ✅ ✅');
+          console.log('📨 Message ID:', result.messageId);
+          await db.collection('fcm_queue').doc(queueId).update({
+            status: 'sent',
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            messageId: result.messageId
+          });
+          notificationsSent++;
+        } else {
+          console.log(`⚠️ لم يتم إرسال push (${result.reason}) - لكن تم حفظ نسخة in-app`);
+          await db.collection('fcm_queue').doc(queueId).update({
+            status: 'failed',
+            error: result.reason,
+            failedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          notificationsFailed++;
+        }
+
+        console.log(`\n📊 إحصائيات: ${notificationsSent} مرسل | ${notificationsFailed} فشل\n`);
+        
+      } catch (error) {
+        console.error('❌ ❌ ❌ خطأ في إرسال الإشعار:');
+        console.error('📛 Error:', error.message);
+        console.error('📛 Code:', error.code);
+        
+        // تحديث الحالة إلى failed
+        await db.collection('fcm_queue').doc(queueId).update({
+          status: 'failed',
+          error: error.message,
+          errorCode: error.code,
+          failedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        notificationsFailed++;
+      }
+    }
+  });
+}, (error) => {
+  console.error('❌ ❌ ❌ خطأ كبير في مراقبة fcm_queue:', error);
+  console.error('تأكد من صلاحيات Firestore Rules!');
+});
 
 // ============================================
 // 1️⃣ مراقبة الرحلات (Trips) - تم إلغاؤها عن قصد

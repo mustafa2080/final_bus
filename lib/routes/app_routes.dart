@@ -59,7 +59,6 @@ import '../screens/admin/books_list_screen.dart';
 import '../screens/admin/book_detail_screen.dart';
 import '../screens/admin/add_book_screen.dart';
 import '../screens/admin/admin_profile_screen.dart';
-import '../screens/admin/notification_test_screen.dart';
 import '../screens/admin/app_diagnostics_screen.dart';
 import '../utils/app_constants.dart';
 import '../models/student_model.dart';
@@ -512,11 +511,6 @@ class AppRoutes {
             path: 'profile',
             name: 'admin-profile',
             builder: (context, state) => const AdminProfileScreen(),
-          ),
-          GoRoute(
-            path: 'notification-test',
-            name: 'notification-test',
-            builder: (context, state) => const NotificationTestScreen(),
           ),
           GoRoute(
             path: 'diagnostics',
