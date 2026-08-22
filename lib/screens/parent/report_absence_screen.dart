@@ -3,8 +3,6 @@ import 'package:intl/intl.dart';
 import '../../models/absence_model.dart';
 import '../../models/student_model.dart';
 import '../../services/database_service.dart';
-import '../../services/notification_service.dart';
-import '../../services/notification_sender_service.dart';
 import '../../widgets/curved_app_bar.dart';
 import '../../utils/responsive_helper.dart';
 
@@ -25,8 +23,6 @@ class _ReportAbsenceScreenState extends State<ReportAbsenceScreen> {
   final _reasonController = TextEditingController();
   final _notesController = TextEditingController();
   final _databaseService = DatabaseService();
-  final _notificationService = NotificationService();
-  final _notificationSender = NotificationSenderService();
 
   AbsenceType _selectedType = AbsenceType.sick;
   DateTime _startDate = DateTime.now();
@@ -585,11 +581,15 @@ class _ReportAbsenceScreenState extends State<ReportAbsenceScreen> {
 
       debugPrint('âœ… Absence notification created successfully!');
 
-      // إرسال إشعارات محسنة للمشرفين والإدارة مع الصوت وعرض خارجي
-      await _sendEnhancedNotificationsToStaff(absence);
-
-      // إرسال إشعار للأدمن خارج التطبيق
-      await _sendAbsenceNotificationToAdmin(absence);
+      // ملحوظة: مبنبعتش إشعار مباشر من هنا عن قصد. الباك اند (backend/index.js)
+      // بيراقب collection('absences') عن طريق onSnapshot وبيبعت إشعار واحد
+      // لكل المشرفين والإدارة أول ما يشوف الغياب الجديد. كنا قبل كده بنبعت
+      // من هنا كمان (مرتين: _sendEnhancedNotificationsToStaff و
+      // _sendAbsenceNotificationToAdmin) فكان المستلم بياخد 3 إشعارات مختلفة
+      // الصياغة عن نفس الحدث، ودالة الـ deduplication الموجودة مكنتش تمسك
+      // التكرار ده لأنها مصممة تمنع تكرار نفس الرسالة بالظبط مش 3 رسايل
+      // مختلفة عن نفس الحدث. لو حبينا إشعار فوري تاني قدام العميل، لازم
+      // يتبعت عن طريق fcm_queue برضه (زي SimpleFCMService) مش استدعاء مباشر.
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -618,229 +618,13 @@ class _ReportAbsenceScreenState extends State<ReportAbsenceScreen> {
     }
   }
 
-  // إرسال إشعارات محسنة للمشرفين والإدارة مع عرض خارجي
-  Future<void> _sendEnhancedNotificationsToStaff(AbsenceModel absence) async {
-    try {
-      debugPrint('🚑 Sending enhanced absence notifications with external display...');
-      
-      // الحصول على جميع المشرفين والإدارة
-      final supervisors = await _databaseService.getAllSupervisors();
-      final admins = await _databaseService.getAllAdmins();
-      
-      debugPrint('👥 Found ${supervisors.length} supervisors and ${admins.length} admins');
-
-      // إعداد الرسالة والعنوان
-      final notificationTitle = '🚑 طلب غياب جديد - ${absence.studentName}';
-      final dateText = absence.endDate != null
-          ? 'من ${_formatDate(absence.date)} إلى ${_formatDate(absence.endDate!)}'
-          : 'يوم ${_formatDate(absence.date)}';
-      
-      final notificationBody = '💫 أبلغ ولي أمر ${absence.studentName} عن الغياب $dateText\n\n'
-                               '📝 السبب: ${absence.reason}\n\n'
-                               '🔔 يرجى مراجعة التطبيق للتفاصيل.';
-
-      // إرسال إشعار للمشرفين مع عرض خارجي
-      for (final supervisor in supervisors) {
-        try {
-          // إرسال إشعار محسن مع صوت وعرض خارجي
-          await _notificationService.sendEnhancedGeneralNotification(
-            title: notificationTitle,
-            body: notificationBody,
-            targetUserId: supervisor.id,
-            recipientId: supervisor.id,
-            enableExternalDisplay: true,
-            data: {
-              'type': 'absence_request_enhanced',
-              'studentId': absence.studentId,
-              'studentName': absence.studentName,
-              'parentId': absence.parentId,
-              'absenceId': absence.id,
-              'date': absence.date.toIso8601String(),
-              'endDate': absence.endDate?.toIso8601String(),
-              'reason': absence.reason,
-              'priority': 'high',
-              'channel_id': 'absence_notifications',
-              'importance': 'high',
-              'timestamp': DateTime.now().toIso8601String(),
-            },
-          );
-          
-          debugPrint('✅ Enhanced notification sent to supervisor: ${supervisor.name}');
-        } catch (e) {
-          debugPrint('❌ Error sending notification to supervisor ${supervisor.name}: $e');
-        }
-      }
-
-      // إرسال إشعار للإدارة مع عرض خارجي
-      for (final admin in admins) {
-        try {
-          await _notificationService.sendEnhancedGeneralNotification(
-            title: notificationTitle,
-            body: notificationBody,
-            targetUserId: admin.id,
-            recipientId: admin.id,
-            enableExternalDisplay: true,
-            data: {
-              'type': 'absence_request_enhanced',
-              'studentId': absence.studentId,
-              'studentName': absence.studentName,
-              'parentId': absence.parentId,
-              'absenceId': absence.id,
-              'date': absence.date.toIso8601String(),
-              'endDate': absence.endDate?.toIso8601String(),
-              'reason': absence.reason,
-              'priority': 'high',
-              'channel_id': 'absence_notifications',
-              'importance': 'high',
-              'timestamp': DateTime.now().toIso8601String(),
-            },
-          );
-          
-          debugPrint('✅ Enhanced notification sent to admin: ${admin.name}');
-        } catch (e) {
-          debugPrint('❌ Error sending notification to admin ${admin.name}: $e');
-        }
-      }
-
-      debugPrint('🎯 Enhanced absence notifications sent to ${supervisors.length} supervisors and ${admins.length} admins with external display');
-    } catch (e) {
-      debugPrint('❌ Error sending enhanced notifications to staff: $e');
-      // الرجوع للطريقة القديمة في حالة الفشل
-      await _sendNotificationsToStaff(absence);
-    }
-  }
-
-  // إرسال إشعارات للمشرفين والإدارة مع الصوت
-  Future<void> _sendNotificationsToStaffWithSound(AbsenceModel absence) async {
-    try {
-      // الحصول على جميع المشرفين والإدارة
-      final supervisors = await _databaseService.getAllSupervisors();
-      final admins = await _databaseService.getAllAdmins();
-
-      // إرسال إشعار للمشرفين
-      for (final supervisor in supervisors) {
-        await _notificationService.notifyAbsenceRequestWithSound(
-          studentId: absence.studentId,
-          studentName: absence.studentName,
-          parentId: absence.parentId,
-          parentName: 'ولي الأمر', // يمكن الحصول عليه من بيانات المستخدم
-          supervisorId: supervisor.id,
-          busId: widget.student.busRoute,
-          date: absence.date,
-          absenceDate: absence.date,
-          reason: absence.reason,
-        );
-      }
-
-      // إرسال إشعار للإدارة
-      for (final admin in admins) {
-        await _notificationService.notifyAbsenceRequestWithSound(
-          studentId: absence.studentId,
-          studentName: absence.studentName,
-          parentId: absence.parentId,
-          parentName: 'ولي الأمر', // يمكن الحصول عليه من بيانات المستخدم
-          supervisorId: admin.id, // استخدام معرف الإدمن كمشرف
-          busId: widget.student.busRoute,
-          date: absence.date,
-          absenceDate: absence.date,
-          reason: absence.reason,
-        );
-      }
-
-      debugPrint('✅ Enhanced notifications sent to ${supervisors.length} supervisors and ${admins.length} admins');
-    } catch (e) {
-      debugPrint('❌ Error sending enhanced notifications to staff: $e');
-      // الرجوع للطريقة القديمة في حالة الفشل
-      await _sendNotificationsToStaff(absence);
-    }
-  }
-
-  // إرسال إشعارات للمشرفين والإدارة
-  Future<void> _sendNotificationsToStaff(AbsenceModel absence) async {
-    try {
-      final dateText = absence.endDate != null
-          ? 'من ${_formatDate(absence.date)} إلى ${_formatDate(absence.endDate!)}'
-          : _formatDate(absence.date);
-
-      final notificationTitle = 'إشعار غياب - ${absence.studentName}';
-      final notificationBody = 'أبلغ ولي الأمر عن غياب ${absence.studentName} يوم $dateText\nالسبب: ${absence.reason}';
-
-      // الحصول على جميع المشرفين والإدارة
-      final supervisors = await _databaseService.getAllSupervisors();
-      final admins = await _databaseService.getAllAdmins();
-
-      // إرسال إشعار لكل مشرف
-      for (final supervisor in supervisors) {
-        await _notificationService.sendGeneralNotification(
-          title: notificationTitle,
-          body: notificationBody,
-          recipientId: supervisor.id,
-          data: {
-            'type': 'absence_notification',
-            'studentId': absence.studentId,
-            'studentName': absence.studentName,
-            'parentId': absence.parentId,
-            'absenceId': absence.id,
-            'date': absence.date.toIso8601String(),
-            'endDate': absence.endDate?.toIso8601String(),
-            'reason': absence.reason,
-          },
-        );
-      }
-
-      // إرسال إشعار لكل أدمن
-      for (final admin in admins) {
-        await _notificationService.sendGeneralNotification(
-          title: notificationTitle,
-          body: notificationBody,
-          recipientId: admin.id,
-          data: {
-            'type': 'absence_notification',
-            'studentId': absence.studentId,
-            'studentName': absence.studentName,
-            'parentId': absence.parentId,
-            'absenceId': absence.id,
-            'date': absence.date.toIso8601String(),
-            'endDate': absence.endDate?.toIso8601String(),
-            'reason': absence.reason,
-          },
-        );
-      }
-
-      debugPrint('âœ… Notifications sent to ${supervisors.length} supervisors and ${admins.length} admins');
-    } catch (e) {
-      debugPrint('â‌Œ Error sending notifications to staff: $e');
-      // لا نريد أن يفشل إنشاء الغياب بسبب فشل الإشعارات
-    }
-  }
-
-  String _formatDate(DateTime date) {
-    return DateFormat('yyyy/MM/dd').format(date);
-  }
-
-  /// إرسال إشعار غياب للأدمن خارج التطبيق
-  Future<void> _sendAbsenceNotificationToAdmin(AbsenceModel absence) async {
-    try {
-      debugPrint('📧 Sending absence notification to admin outside app...');
-      
-      // الحصول على بيانات ولي الأمر
-      final parentData = await _databaseService.getUserById(absence.parentId);
-      final parentName = parentData?.name ?? 'ولي أمر';
-      
-      await _notificationSender.sendAbsenceNotificationToAdmin(
-        absenceId: absence.id,
-        parentName: parentName,
-        studentName: absence.studentName,
-        absenceDate: _formatDate(absence.date),
-        endDate: absence.endDate != null ? _formatDate(absence.endDate!) : null,
-        reason: absence.reason,
-      );
-      
-      debugPrint('✅ Absence notification sent to admin successfully');
-    } catch (e) {
-      debugPrint('❌ Error sending absence notification to admin: $e');
-    }
-  }
+  // ملحوظة: الدوال اللي كانت هنا (_sendEnhancedNotificationsToStaff،
+  // _sendNotificationsToStaffWithSound، _sendNotificationsToStaff،
+  // _sendAbsenceNotificationToAdmin) اتشالوا. كانوا بيبعتوا إشعار مباشر
+  // للمشرفين/الإدارة بعد إنشاء الغياب، وده كان بيسبب تكرار الإشعار مع
+  // إشعار الباك اند (backend/index.js يراقب collection('absences') عن
+  // طريق onSnapshot ويبعت إشعار واحد بس). شوف الملحوظة فوق
+  // _submitAbsenceReport لتفاصيل أكتر.
 }
 
 
