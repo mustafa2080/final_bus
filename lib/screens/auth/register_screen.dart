@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../models/user_model.dart';
-import '../../utils/responsive_helper.dart';
 import '../../widgets/animated_background.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -257,26 +256,33 @@ class _RegisterScreenState extends State<RegisterScreen>
                             opacity: _fadeAnimation,
                             child: SlideTransition(
                               position: _slideAnimation,
-                              child: Form(
-                                key: _formKey,
-                                child: Padding(
-                                  padding: EdgeInsets.only(
-                                    bottom: MediaQuery.of(context).viewInsets.bottom * 0.5,
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: isTablet || isDesktop ? 600 : double.infinity,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      _buildResponsiveHeaderSection(isMobile, isTablet, isDesktop),
-                                      SizedBox(height: _getSpacing(40, isMobile, isTablet, isDesktop)),
-                                      ..._buildStaggeredFormFields(isMobile, isTablet, isDesktop),
-                                      SizedBox(height: _getSpacing(20, isMobile, isTablet, isDesktop)),
-                                      _buildTermsCheckbox(isMobile, isTablet, isDesktop),
-                                      SizedBox(height: _getSpacing(32, isMobile, isTablet, isDesktop)),
-                                      _buildRegisterButton(isMobile, isTablet, isDesktop),
-                                      SizedBox(height: _getSpacing(24, isMobile, isTablet, isDesktop)),
-                                      _buildLoginLink(isMobile, isTablet, isDesktop),
-                                      SizedBox(height: _getSpacing(32, isMobile, isTablet, isDesktop)),
-                                    ],
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: MediaQuery.of(context).viewInsets.bottom * 0.5,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          _buildResponsiveHeaderSection(isMobile, isTablet, isDesktop),
+                                          SizedBox(height: _getSpacing(40, isMobile, isTablet, isDesktop)),
+                                          ..._buildStaggeredFormFields(isMobile, isTablet, isDesktop),
+                                          SizedBox(height: _getSpacing(20, isMobile, isTablet, isDesktop)),
+                                          _buildTermsCheckbox(isMobile, isTablet, isDesktop),
+                                          SizedBox(height: _getSpacing(32, isMobile, isTablet, isDesktop)),
+                                          _buildRegisterButton(isMobile, isTablet, isDesktop),
+                                          SizedBox(height: _getSpacing(24, isMobile, isTablet, isDesktop)),
+                                          _buildLoginLink(isMobile, isTablet, isDesktop),
+                                          SizedBox(height: _getSpacing(32, isMobile, isTablet, isDesktop)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -298,7 +304,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   Widget _buildCustomAppBar() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth < 400;
+        final isNarrow = constraints.maxWidth < 600;
         return Container(
           padding: EdgeInsets.symmetric(
             horizontal: isNarrow ? 12.0 : 16.0,
@@ -375,7 +381,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             border: Border.all(color: Colors.white.withOpacity(0.2)),
           ),
           child: Text(
-            'أدخل بياناتك لإنشاء حساب ولي أمر',
+            'الرجاء إنشاء حساب باسم ولي الأمر (الوالد)',
             style: TextStyle(
               fontSize: subtitleFontSize,
               color: Colors.white70,
@@ -403,10 +409,12 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   List<Widget> _buildStaggeredFormFields(bool isMobile, bool isTablet, bool isDesktop) {
     final fields = [
+      _buildParentNameNotice(isMobile, isTablet, isDesktop),
+      SizedBox(height: _getSpacing(16, isMobile, isTablet, isDesktop)),
       _buildAnimatedTextField(
         controller: _nameController,
         label: 'الاسم الكامل',
-        hint: 'أدخل اسمك الكامل',
+        hint: 'اسم ولي الأمر (الوالد)',
         prefixIcon: Icons.person_outline,
         validator: (value) {
           if (value == null || value.isEmpty) {
@@ -528,6 +536,56 @@ class _RegisterScreenState extends State<RegisterScreen>
       ),
     ];
     return fields;
+  }
+
+  Widget _buildParentNameNotice(bool isMobile, bool isTablet, bool isDesktop) {
+    final fontSize = isMobile ? 13.0 : isTablet ? 14.0 : 15.0;
+    final padding = isMobile ? 12.0 : isTablet ? 14.0 : 16.0;
+    final borderRadius = isMobile ? 12.0 : 16.0;
+    final iconSize = isMobile ? 20.0 : 22.0;
+
+    return AnimatedBuilder(
+      animation: _staggerController,
+      builder: (context, child) {
+        final animationValue = Curves.easeOut.transform(
+          ((_staggerController.value * 1000) / 400).clamp(0.0, 1.0),
+        );
+
+        return Transform.translate(
+          offset: Offset(0, 20 * (1 - animationValue)),
+          child: Opacity(
+            opacity: animationValue,
+            child: Container(
+              padding: EdgeInsets.all(padding),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(borderRadius),
+                border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1.5),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Colors.amber[200], size: iconSize),
+                  SizedBox(width: isMobile ? 8.0 : 10.0),
+                  Expanded(
+                    child: Text(
+                      'الرجاء إنشاء حساب باسم ولي الأمر (الوالد)، سواء كنت تستخدم آيفون أو أندرويد.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: fontSize,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Tajawal',
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildAnimatedTextField({
