@@ -222,6 +222,8 @@ class _SupervisorAssignmentsScreenState extends State<SupervisorAssignmentsScree
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           Text(
             label,
@@ -230,6 +232,8 @@ class _SupervisorAssignmentsScreenState extends State<SupervisorAssignmentsScree
               color: Colors.white.withAlpha(204),
             ),
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),

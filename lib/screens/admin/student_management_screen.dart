@@ -1601,42 +1601,51 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
             Text('استيراد الطلاب من Excel'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'يمكنك استيراد قائمة الطلاب من ملف Excel بالتنسيق التالي:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('الأعمدة المطلوبة:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(height: 4),
-                  Text('• اسم الطالب'),
-                  Text('• اسم ولي الأمر'),
-                  Text('• رقم هاتف ولي الأمر'),
-                  Text('• بريد ولي الأمر الإلكتروني'),
-                  Text('• اسم المدرسة'),
-                  Text('• الصف'),
-                  Text('• العنوان'),
-                  Text('• خط الحافلة'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
+                const Text(
+                  'يمكنك استيراد قائمة الطلاب من ملف Excel بالتنسيق التالي:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('الأعمدة (بالترتيب):', style: TextStyle(fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text('• اسم الطالب'),
+                      Text('• اسم ولي الأمر'),
+                      Text('• رقم هاتف ولي الأمر'),
+                      Text('• بريد ولي الأمر الإلكتروني'),
+                      Text('• اسم المدرسة'),
+                      Text('• الصف'),
+                      Text('• العنوان'),
+                      Text('• خط الحافلة'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'ملاحظة: كل الحقول اختيارية ويتم قبول أي قيمة كما هي بدون تحقق.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 16),
+                // أزرار بعرض كامل فوق بعض لتفادي أي overflow على الشاشات الضيقة
+                SizedBox(
+                  width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
@@ -1650,8 +1659,9 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
@@ -1667,7 +1677,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                 ),
               ],
             ),
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1726,35 +1736,39 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
       // حفظ الملف
       final bytes = excelFile.encode();
-      if (bytes == null) {
+      if (bytes == null || bytes.isEmpty) {
         throw Exception('فشل إنشاء بيانات ملف Excel');
       }
 
-      final fileName = 'نموذج_استيراد_الطلاب_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final data = Uint8List.fromList(bytes);
+      final fileName = 'نموذج_استيراد_الطلاب.xlsx';
 
-      if (kIsWeb) {
-        // على الويب: file_picker.saveFile بيحفظ البيانات مباشرة
-        await FilePicker.platform.saveFile(
-          fileName: fileName,
-          bytes: Uint8List.fromList(bytes),
-          type: FileType.custom,
-          allowedExtensions: ['xlsx'],
-        );
-      } else {
-        // على الموبايل/سطح المكتب: نطلب من المستخدم مكان الحفظ
-        final savePath = await FilePicker.platform.saveFile(
-          fileName: fileName,
-          type: FileType.custom,
-          allowedExtensions: ['xlsx'],
-        );
+      // نمرّر bytes دائماً: هذا مطلوب على أندرويد/iOS (بدونه يرمي استثناء
+      // وكان الزر يفشل على الموبايل)، وعلى الويب يبدأ التنزيل تلقائياً،
+      // وعلى سطح المكتب يحفظ الملف في المكان الذي يختاره المستخدم.
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'حفظ نموذج استيراد الطلاب',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        bytes: data,
+      );
 
+      if (!kIsWeb) {
+        // على الموبايل/سطح المكتب: إرجاع null يعني أن المستخدم ألغى الحفظ
         if (savePath == null) {
-          // المستخدم ألغى عملية الحفظ
           return;
         }
-
-        final file = File(savePath);
-        await file.writeAsBytes(bytes);
+        // على سطح المكتب قد لا تُكتب البايتس تلقائياً في بعض الإصدارات،
+        // فنكتبها احتياطياً (مع تجاهل الأخطاء على مسارات content:// URI)
+        try {
+          final file = File(savePath);
+          if (!await file.exists() || (await file.length()) == 0) {
+            await file.writeAsBytes(data);
+          }
+        } catch (e) {
+          debugPrint('template fallback write skipped: $e');
+        }
       }
 
       if (mounted) {
@@ -1820,8 +1834,11 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
             for (int row = 1; row < sheet.maxRows; row++) {
               final rowData = sheet.row(row);
 
-              // التأكد من وجود بيانات في الصف
-              if (rowData.isNotEmpty && rowData[0]?.value != null) {
+              // نقبل أي صف فيه أي بيانات في أي عمود (بدون اشتراط عمود معيّن)
+              final bool hasAnyData = rowData.any((cell) =>
+                  cell?.value != null &&
+                  cell!.value.toString().trim().isNotEmpty);
+              if (hasAnyData) {
                 studentsData.add({
                   'studentName': _getCellValue(rowData, 0),
                   'parentName': _getCellValue(rowData, 1),
@@ -1937,25 +1954,17 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
         try {
           final studentName = (studentData['studentName'] ?? '').trim();
           final parentName = (studentData['parentName'] ?? '').trim();
+          // تنظيف بسيط للهاتف (إزالة مسافات/رموز فقط) بدون أي رفض
           final parentPhone = _normalizePhone(studentData['parentPhone'] ?? '');
           final parentEmail = (studentData['parentEmail'] ?? '').trim();
 
-          // التحقق من الحقول الأساسية المطلوبة قبل الحفظ
-          if (studentName.isEmpty || parentName.isEmpty || parentPhone.isEmpty) {
-            errorCount++;
-            skippedRows.add('صف ${i + 2}: بيانات أساسية ناقصة (الاسم/ولي الأمر/الهاتف)');
-            continue;
-          }
-
-          if (!_isValidEgyptianPhone(parentPhone)) {
-            errorCount++;
-            skippedRows.add('صف ${i + 2}: رقم هاتف غير صالح ($parentPhone)');
-            continue;
-          }
-
-          if (parentEmail.isNotEmpty && !_isValidEmail(parentEmail)) {
-            errorCount++;
-            skippedRows.add('صف ${i + 2}: بريد إلكتروني غير صالح ($parentEmail)');
+          // بدون تحقق (validation): نقبل أي قيمة كما هي من الملف —
+          // مافيش رفض بسبب صيغة الهاتف أو البريد أو الحقول الناقصة.
+          // الاستثناء الوحيد: تخطي الصف الفاضي تماماً (كل الأعمدة فاضية)
+          // حتى لا نُنشئ سجلات بلا أي بيانات.
+          final bool isRowEmpty = studentData.values
+              .every((v) => (v).trim().isEmpty);
+          if (isRowEmpty) {
             continue;
           }
 
@@ -2077,15 +2086,6 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
       phone = '0${phone.substring(2)}';
     }
     return phone;
-  }
-
-  /// التحقق من رقم هاتف مصري صالح (01 + رقم شبكة صحيح + 8 أرقام)
-  bool _isValidEgyptianPhone(String phone) {
-    return RegExp(r'^01[0125][0-9]{8}$').hasMatch(phone);
-  }
-
-  bool _isValidEmail(String email) {
-    return RegExp(r'^[\w\.\-]+@[\w\-]+\.[a-zA-Z]{2,}$').hasMatch(email);
   }
 
   Widget _buildExpandableFAB() {

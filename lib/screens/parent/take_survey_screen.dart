@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/notification_sender_service.dart';
 import '../../models/survey_model.dart';
 import '../../models/user_model.dart';
 
@@ -19,7 +18,6 @@ class TakeSurveyScreen extends StatefulWidget {
 class _TakeSurveyScreenState extends State<TakeSurveyScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
-  final NotificationSenderService _notificationSender = NotificationSenderService();
   final PageController _pageController = PageController();
   
   SurveyModel? _survey;
@@ -557,15 +555,11 @@ class _TakeSurveyScreenState extends State<TakeSurveyScreen> {
 
       await _databaseService.submitSurveyResponse(response);
 
-      // إرسال إشعار للأدمن عن إتمام الاستبيان
-      try {
-        await _notificationSender.sendSurveyCompletionNotificationToAdmin(
-          parentName: _currentUser!.name,
-          surveyTitle: _survey!.title,
-        );
-      } catch (e) {
-        debugPrint('❌ خطأ في إرسال إشعار الاستبيان: $e');
-      }
+      // ملاحظة (منع التكرار): إشعار "إكمال استبيان" للأدمن بيتبعت من
+      // مصدر واحد جوه submitSurveyResponse نفسها (database_service →
+      // SimpleFCMService().sendSurveyCompletionNotification). كان فيه
+      // نداء تاني هنا (sendSurveyCompletionNotificationToAdmin) بيخلي
+      // الأدمن يستلم نفس الاستبيان مرتين، فاتشال ليفضل إشعار واحد.
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

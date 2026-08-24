@@ -558,20 +558,13 @@ class DatabaseService {
       }
 
       if (changes.isNotEmpty) {
-        // إرسال إشعار لولي الأمر فقط (بدون إشعار الأدمن)
-        await SimpleFCMService().sendNotificationToUser(
-          userId: parentId,
-          title: 'تم تحديث معلومات $studentName',
-          body: 'تم تحديث المعلومات التالية:\n• ${changes.join('\n• ')}',
-          data: {
-            'type': 'student_info_update',
-            'changes': changes.join(', '),
-            'studentId': studentId,
-            'timestamp': DateTime.now().toIso8601String(),
-          },
-          channelId: 'student_notifications',
-        );
-        debugPrint('✅ Parent notification sent for student info update (no admin notification)');
+        // ملاحظة (منع التكرار): اتشال إرسال إشعار "تم تحديث معلومات الطالب"
+        // من هنا. شاشات الأدمن (edit_student / all_students) بتبعت الإشعار
+        // الأغنى NotificationService().notifyStudentDataUpdate (لولي الأمر
+        // + المشرف)، وده كان بيخلي ولي الأمر يستلم إشعارين مختلفين لنفس
+        // التعديل. كمان كان بيطلق عند تغيير خط السير وقت تسكين الباص فيتكرر
+        // مع إشعار التسكين. المصدر الوحيد دلوقتي = notifyStudentDataUpdate.
+        debugPrint('ℹ️ Student info change detected for $studentName (${changes.length} fields) - notification handled by notifyStudentDataUpdate to avoid duplicates');
       }
 
     } catch (e) {

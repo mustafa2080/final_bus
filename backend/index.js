@@ -1207,29 +1207,29 @@ async function handleDataUpdate(studentId, studentData, changedFields) {
     const notificationTitle = '📝 تم تحديث بيانات الطالب';
     const notificationBody = `تم تحديث بيانات ${studentData.name} من قبل الإدارة\n\n${changesText}`;
 
-    const result = await sendFcmNotification(admin, db, {
-      recipientId: parentId,
-      fcmToken: parent.fcmToken,
+    // منع التكرار: التطبيق (NotificationService.notifyStudentDataUpdate) هو
+    // اللي بيبعت push الفعلي لولي الأمر (والمشرف) عند تعديل بيانات الطالب من
+    // شاشات الأدمن. الدالة دي بترصد نفس التعديل من ناحية الباك إند وبتكتفي
+    // بحفظ نسخة in-app بس (نفس منطق handleStatusChange فوق) عشان ولي الأمر
+    // ماياخدش نفس الإشعار مرتين. لو يوم ما بقى التعديل بيتم من مصدر مش بيبعت
+    // push (مثلاً لوحة تحكم ويب)، نرجّع نستخدم sendFcmNotification هنا.
+    await db.collection('notifications').add({
+      id: db.collection('notifications').doc().id,
       title: notificationTitle,
       body: notificationBody,
+      recipientId: parentId,
+      studentId: studentId,
+      studentName: studentData.name,
       type: 'student_data_update',
-      channelId: CHANNELS.STUDENT,
-      color: '#2196F3',
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      isRead: false,
       data: {
-        studentId,
-        studentName: studentData.name,
         changedFields: JSON.stringify(changedFields),
-        navigationRoute: '/parent/students',
-        navigationParams: JSON.stringify({ studentId, openDetails: true }),
       },
     });
 
-    if (result.sent) {
-      console.log(`   ✅ إشعار تحديث بيانات مرسل بنجاح! Message ID: ${result.messageId}`);
-    } else {
-      console.log(`   ⚠️ لم يتم إرسال push (${result.reason}) - تم حفظ نسخة in-app`);
-    }
-    
+    console.log(`   ✅ نسخة in-app من تحديث البيانات اتحفظت (بدون push - التطبيق بيبعت الـ push)`);
+
     console.log(`💾 تم حفظ الإشعار في Firestore\n`);
     
   } catch (error) {

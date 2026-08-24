@@ -309,33 +309,101 @@
     .parent-students-container {
         padding: 15px;
     }
-    
+
     .stats-card {
         margin-bottom: 15px;
     }
-    
+
     .student-card {
         padding: 15px;
         margin-bottom: 15px;
     }
-    
+
     .action-buttons {
         justify-content: center;
     }
-    
+
     .action-btn {
         font-size: 0.8rem;
         padding: 6px 10px;
     }
-    
+
     .filters-section {
         padding: 15px;
     }
-    
+
     .students-table .table thead th,
     .students-table .table tbody td {
         padding: 10px;
         font-size: 0.9rem;
+    }
+}
+
+/* ── تجاوب إضافي لكل المقاسات ─────────────────────────────────────────── */
+
+/* الهيدر: الأزرار بعرض كامل تحت بعض على الموبايل */
+.header-actions {
+    width: 100%;
+}
+.header-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+}
+@media (min-width: 768px) {
+    .header-actions {
+        width: auto;
+    }
+    .header-actions .btn {
+        flex: 0 0 auto;
+    }
+}
+
+/* عنوان الصفحة: حجم أصغر على الموبايل عشان ميكسرش السطر */
+.page-title {
+    font-size: 1.4rem;
+}
+@media (min-width: 768px) {
+    .page-title {
+        font-size: 2rem;
+    }
+}
+
+/* كروت الإحصائيات على الموبايل (عمودين) */
+@media (max-width: 575px) {
+    .stats-card {
+        padding: 14px;
+    }
+    .stats-card h4 {
+        font-size: 1.6rem;
+    }
+    .stats-card p {
+        font-size: 0.8rem;
+    }
+
+    /* الجدول: خط أصغر + الصورة أصغر عشان الصفوف ماتبقاش عريضة أوي */
+    .students-table .table thead th,
+    .students-table .table tbody td {
+        padding: 8px 6px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+    .student-photo,
+    .student-photo-placeholder {
+        width: 36px;
+        height: 36px;
+        font-size: 0.9rem;
+    }
+
+    /* المودالات: عرض كامل تقريبًا على الموبايل */
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+}
+
+/* التابلت: أرقام إحصائيات متوسطة */
+@media (min-width: 576px) and (max-width: 767px) {
+    .stats-card h4 {
+        font-size: 2rem;
     }
 }
 

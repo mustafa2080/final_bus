@@ -1020,54 +1020,68 @@ class _StudentBehaviorEvaluationFormState extends State<StudentBehaviorEvaluatio
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: StudentBehaviorEvaluation.getAllRatings().map((rating) {
-              final isSelected = _ratings[category] == rating;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _ratings[category] = rating;
-                    });
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? _getRatingColor(rating)
-                          : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isSelected
-                            ? _getRatingColor(rating)
-                            : Colors.grey[300]!,
-                        width: 2,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // على الشاشات الضيقة (زي iPhone SE) نقلل حجم الخط والأيقونة
+              // ونحمي النص من القطع بدل ما يفيض بره الصندوق
+              final isNarrow = constraints.maxWidth < 340;
+              final fontSize = isNarrow ? 9.0 : 10.0;
+              final iconSize = isNarrow ? 16.0 : 20.0;
+              final verticalPadding = isNarrow ? 6.0 : 8.0;
+
+              return Row(
+                children: StudentBehaviorEvaluation.getAllRatings().map((rating) {
+                  final isSelected = _ratings[category] == rating;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _ratings[category] = rating;
+                        });
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: EdgeInsets.symmetric(vertical: verticalPadding, horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? _getRatingColor(rating)
+                              : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected
+                                ? _getRatingColor(rating)
+                                : Colors.grey[300]!,
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _getRatingIcon(rating),
+                              color: isSelected ? Colors.white : Colors.grey[600],
+                              size: iconSize,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              StudentBehaviorEvaluation.getBehaviorRatingName(rating),
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.grey[600],
+                                fontSize: fontSize,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    child: Column(
-                      children: [
-                        Icon(
-                          _getRatingIcon(rating),
-                          color: isSelected ? Colors.white : Colors.grey[600],
-                          size: 20,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          StudentBehaviorEvaluation.getBehaviorRatingName(rating),
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : Colors.grey[600],
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                  );
+                }).toList(),
               );
-            }).toList(),
+            },
           ),
         ],
       ),

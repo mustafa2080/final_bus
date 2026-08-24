@@ -1032,11 +1032,14 @@ async function loadStudentsPage() {
                                 <div class="row">
                                     <div class="col-sm-6 mb-3">
                                         <label class="form-label">ولي الأمر *</label>
-                                        <select class="form-control" name="parentId" required onchange="updateParentInfo()">
+                                        <input type="text" class="form-control mb-1" id="parentSearchInput"
+                                               placeholder="ابحث بالاسم أو رقم الهاتف..."
+                                               oninput="filterParentOptions(this.value, 'addStudentForm')">
+                                        <select class="form-control" name="parentId" required onchange="updateParentInfo()" size="5">
                                             <option value="">اختر ولي الأمر</option>
                                             <option value="new_parent">+ إضافة ولي أمر جديد</option>
                                         </select>
-                                        <small class="text-muted">اختر من أولياء الأمور المسجلين أو أضف جديد</small>
+                                        <small class="text-muted">اكتب في مربع البحث لتصفية القائمة، ثم اختر من أولياء الأمور المسجلين أو أضف جديد</small>
                                     </div>
                                     <div class="col-sm-6 mb-3">
                                         <label class="form-label">رقم هاتف ولي الأمر</label>
@@ -4864,11 +4867,14 @@ async function editStudent(studentId) {
 
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">ولي الأمر *</label>
-                                    <select class="form-control" name="parentId" required onchange="updateParentInfoEdit()">
+                                    <input type="text" class="form-control mb-1" id="editParentSearchInput"
+                                           placeholder="ابحث بالاسم أو رقم الهاتف..."
+                                           oninput="filterParentOptions(this.value, 'editStudentForm')">
+                                    <select class="form-control" name="parentId" required onchange="updateParentInfoEdit()" size="5">
                                         <option value="">اختر ولي الأمر</option>
                                         <option value="${student.parentId || ''}" selected>${student.parentName || 'ولي الأمر الحالي'}</option>
                                     </select>
-                                    <small class="text-muted">اختر من أولياء الأمور المسجلين</small>
+                                    <small class="text-muted">اكتب في مربع البحث لتصفية القائمة، ثم اختر من أولياء الأمور المسجلين</small>
                                 </div>
 
                                 <div class="col-md-6 mb-3">
@@ -13837,6 +13843,31 @@ async function loadParentsForEditForm(currentParentId, currentParentName) {
 
 window.updateParentInfoEdit = updateParentInfoEdit;
 window.loadParentsForEditForm = loadParentsForEditForm;
+
+// Filter parent <option> list live while typing in the search box
+// formId: 'addStudentForm' or 'editStudentForm'
+function filterParentOptions(query, formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    const parentSelect = form.querySelector('select[name="parentId"]');
+    if (!parentSelect) return;
+
+    const normalizedQuery = (query || '').trim().toLowerCase();
+
+    Array.from(parentSelect.options).forEach(option => {
+        // Always keep the placeholder and "add new parent" options visible
+        if (option.value === '' || option.value === 'new_parent') {
+            option.hidden = false;
+            return;
+        }
+
+        const text = option.textContent.toLowerCase();
+        option.hidden = normalizedQuery !== '' && !text.includes(normalizedQuery);
+    });
+}
+
+window.filterParentOptions = filterParentOptions;
 
 // Add keyboard shortcut for emergency reset (Ctrl+Shift+R)
 document.addEventListener('keydown', function(e) {

@@ -1,14 +1,17 @@
 // Firebase Configuration Check
-let db;
-try {
-    if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
-        db = firebase.firestore();
-        console.log('✅ Firebase connected successfully');
-    } else {
-        console.log('⚠️ Firebase not available, using mock data');
+// ملاحظة: في وضع SPA متغير db بيتعرف في firebase-config.js — فبنستخدمه مباشرة،
+// وبنعرّفه هنا بس لو مش موجود خالص (الوضع standalone) عشان منعملش تعارض أسماء.
+if (typeof db === 'undefined') {
+    try {
+        if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+            window.db = firebase.firestore();
+            console.log('✅ Firebase connected successfully');
+        } else {
+            console.log('⚠️ Firebase not available, using mock data');
+        }
+    } catch (error) {
+        console.log('⚠️ Firebase error, using mock data:', error);
     }
-} catch (error) {
-    console.log('⚠️ Firebase error, using mock data:', error);
 }
 
 // Parent Students Management
@@ -394,9 +397,14 @@ class ParentStudentsManager {
         // Excel import buttons
         const importBtn = document.getElementById('importExcelBtn');
         const fileInput = document.getElementById('excelFile');
+        const templateBtn = document.getElementById('downloadTemplateBtn');
 
         if (importBtn) {
             importBtn.addEventListener('click', () => fileInput.click());
+        }
+
+        if (templateBtn) {
+            templateBtn.addEventListener('click', () => downloadStudentsTemplate());
         }
 
         if (fileInput) {
@@ -732,14 +740,6 @@ class ParentStudentsManager {
             document.body.removeChild(toast);
         });
     }
-}
-
-// Global functions
-function refreshParentStudents() {
-    if (window.parentStudentsManager) {
-        window.parentStudentsManager.loadStudents();
-    }
-}
 
     async handleExcelImport(event) {
         const file = event.target.files[0];
@@ -842,7 +842,58 @@ function refreshParentStudents() {
     }
 }
 
+/**
+ * تحميل نموذج Excel جاهز لاستيراد الطلاب — نفس الأعمدة اللي
+ * importStudentsToFirestore بتقرأها بالظبط، مع صف مثال وعرض أعمدة مناسب.
+ */
+function downloadStudentsTemplate() {
+    if (typeof XLSX === 'undefined') {
+        alert('مكتبة Excel لم يتم تحميلها بعد — حدّث الصفحة وحاول تاني');
+        return;
+    }
+
+    const headers = [
+        'name', 'parentName', 'parentPhone', 'parentEmail',
+        'grade', 'schoolName', 'busRoute', 'address', 'notes'
+    ];
+    const headersAr = [
+        'اسم الطالب (مطلوب)', 'اسم ولي الأمر', 'رقم هاتف ولي الأمر (مطلوب)', 'البريد الإلكتروني',
+        'الصف', 'المدرسة', 'خط السير', 'العنوان', 'ملاحظات'
+    ];
+
+    const example = [
+        'أحمد محمد', 'محمد عبد الله', '01012345678', 'parent@example.com',
+        'الروضة', 'مدرسة النور', 'خط 1', 'القاهرة - مدينة نصر', ''
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, headersAr, example]);
+
+    // عرض أعمدة مريح للقراءة
+    ws['!cols'] = [
+        { wch: 20 }, { wch: 20 }, { wch: 18 }, { wch: 25 },
+        { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 30 }, { wch: 25 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'الطلاب');
+    XLSX.writeFile(wb, 'نموذج-استيراد-الطلاب.xlsx');
+}
+
 // Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+// الوضع standalone: الصفحة محمّلة بالكامل → init مباشر.
+// وضع SPA: محتوى الصفحة بيتحقن في index.html بعد التحميل → بنراقب ظهور
+// زرار الاستيراد في الـ DOM وبنعمل init أول ما يظهر (ومرتين مش هيتكرر).
+function bootParentStudents() {
+    const btn = document.getElementById('importExcelBtn');
+    if (!btn || btn.dataset.psBound === '1') return;
+    btn.dataset.psBound = '1';
     window.parentStudentsManager = new ParentStudentsManager();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    bootParentStudents();
+
+    // وضع SPA — مراقبة حقن محتوى الصفحة
+    const observer = new MutationObserver(() => bootParentStudents());
+    observer.observe(document.body, { childList: true, subtree: true });
 });

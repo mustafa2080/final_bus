@@ -55,12 +55,13 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isSmallScreen = constraints.maxWidth < 600;
+            final isVerySmallScreen = constraints.maxWidth < 360;
             return Column(
               children: [
                 const SizedBox(height: 16),
 
                 // Header with Statistics - Made more responsive
-                _buildHeader(cardColor, textColor, subtitleColor),
+                _buildHeader(cardColor, textColor, subtitleColor, isSmallScreen),
                 const SizedBox(height: 16),
 
                 // Tab Bar - Enhanced with Material 3 style
@@ -104,47 +105,55 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                       tabs: [
                         Tab(
                           icon: Icon(Icons.notifications_active, size: 18),
-                          child: Text(
-                            'إشعارات حديثة',
-                            style: TextStyle(fontSize: 11),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 2,
-                          ),
-                          height: 65,
+                          child: isVerySmallScreen
+                              ? null
+                              : Text(
+                                  'إشعارات حديثة',
+                                  style: const TextStyle(fontSize: 11),
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
+                                ),
+                          height: isVerySmallScreen ? 44 : 65,
                         ),
                         Tab(
                           icon: Icon(Icons.history, size: 18),
-                          child: Text(
-                            'جميع الإشعارات',
-                            style: TextStyle(fontSize: 11),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 2,
-                          ),
-                          height: 65,
+                          child: isVerySmallScreen
+                              ? null
+                              : Text(
+                                  'جميع الإشعارات',
+                                  style: const TextStyle(fontSize: 11),
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
+                                ),
+                          height: isVerySmallScreen ? 44 : 65,
                         ),
                         Tab(
                           icon: Icon(Icons.analytics, size: 18),
-                          child: Text(
-                            'الإحصائيات',
-                            style: TextStyle(fontSize: 11),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 2,
-                          ),
-                          height: 65,
+                          child: isVerySmallScreen
+                              ? null
+                              : Text(
+                                  'الإحصائيات',
+                                  style: const TextStyle(fontSize: 11),
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
+                                ),
+                          height: isVerySmallScreen ? 44 : 65,
                         ),
                         Tab(
                           icon: Icon(Icons.assessment, size: 18),
-                          child: Text(
-                            'التقرير الشامل',
-                            style: TextStyle(fontSize: 11),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 2,
-                          ),
-                          height: 65,
+                          child: isVerySmallScreen
+                              ? null
+                              : Text(
+                                  'التقرير الشامل',
+                                  style: const TextStyle(fontSize: 11),
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
+                                ),
+                          height: isVerySmallScreen ? 44 : 65,
                         ),
                       ],
                     ),
@@ -246,7 +255,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
     );
   }
 
-  Widget _buildHeader(Color cardColor, Color textColor, Color subtitleColor) {
+  Widget _buildHeader(Color cardColor, Color textColor, Color subtitleColor, bool isSmallScreen) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -324,10 +333,10 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
 
               return GridView.count(
                 shrinkWrap: true,
-                crossAxisCount: 4, // زيادة عدد الأعمدة لتوفير مساحة
+                crossAxisCount: isSmallScreen ? 2 : 4, // عمودين على الشاشات الضيقة لتجنب الزحام
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 0.75, // تعديل النسبة لمنع overflow المحتوى
+                childAspectRatio: isSmallScreen ? 1.6 : 0.75, // تعديل النسبة لمنع overflow المحتوى
                 children: [
                   _buildStatItem(
                     'اليوم',

@@ -6,8 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import '../../services/storage_service.dart';
-import '../../services/notification_service.dart';
-import '../../services/notification_sender_service.dart';
 import '../../models/complaint_model.dart';
 import '../../models/student_model.dart';
 import '../../widgets/custom_button.dart';
@@ -26,7 +24,6 @@ class _AddComplaintScreenState extends State<AddComplaintScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
   final StorageService _storageService = StorageService();
-  final NotificationSenderService _notificationSender = NotificationSenderService();
   final ImagePicker _imagePicker = ImagePicker();
 
   // Form controllers
@@ -587,27 +584,14 @@ class _AddComplaintScreenState extends State<AddComplaintScreen> {
       // Save to database
       await _databaseService.addComplaint(complaint);
 
-      // إرسال إشعار للإدارة مع الصوت (النظام القديم)
-      await NotificationService().notifyNewComplaintWithSound(
-        complaintId: complaint.id,
-        parentId: currentUser.uid,
-        parentName: parentData['name'] ?? 'ولي أمر',
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
-        subject: _titleController.text.trim(),
-        category: _selectedType.toString().split('.').last,
-      );
-
-      // إرسال إشعار push للأدمن (النظام الجديد المحسن)
-      await _notificationSender.sendComplaintNotificationToAdmin(
-        complaintId: complaint.id,
-        parentName: parentData['name'] ?? 'ولي أمر',
-        studentName: studentName ?? 'غير محدد',
-        complaintType: _getComplaintTypeText(_selectedType),
-      );
-
-      // تأكيد إرسال الإشعار خارج التطبيق
-      debugPrint('📧 Complaint notification sent to admin for outside app display');
+      // ملاحظة (منع التكرار): إشعار "شكوى جديدة" للأدمن بيتبعت من مصدر
+      // واحد بس هو الباك اند (backend/index.js → complaintsRef.onSnapshot
+      // 'added')، اللي بيرصد إضافة الشكوى في Firestore ويبعت push لكل
+      // الأدمن الفعّالين. قبل كده كان التطبيق بيبعت كمان نداءين هنا
+      // (notifyNewComplaintWithSound + sendComplaintNotificationToAdmin)
+      // فكان الأدمن بيستلم نفس الشكوى 3 مرات. اتشالوا عشان يفضل إشعار
+      // واحد فقط لكل شكوى - أي كتابة إشعار للأدمن هنا بتكرّر الباك اند.
+      debugPrint('📧 Complaint saved - admin notification handled by backend watcher');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -639,21 +623,4 @@ class _AddComplaintScreenState extends State<AddComplaintScreen> {
     }
   }
 
-  /// تحويل نوع الشكوى إلى نص عربي
-  String _getComplaintTypeText(ComplaintType type) {
-    switch (type) {
-      case ComplaintType.busService:
-        return 'شكوى خدمة الباص';
-      case ComplaintType.driverBehavior:
-        return 'شكوى سلوك السائق';
-      case ComplaintType.safety:
-        return 'شكوى أمان';
-      case ComplaintType.timing:
-        return 'شكوى التوقيت';
-      case ComplaintType.communication:
-        return 'شكوى التواصل';
-      case ComplaintType.other:
-        return 'شكوى أخرى';
-    }
-  }
 }
