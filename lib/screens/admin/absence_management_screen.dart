@@ -58,11 +58,11 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
             final isVerySmallScreen = constraints.maxWidth < 360;
             return Column(
               children: [
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
 
                 // Header with Statistics - Made more responsive
                 _buildHeader(cardColor, textColor, subtitleColor, isSmallScreen),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
 
                 // Tab Bar - Enhanced with Material 3 style
                 Container(
@@ -114,7 +114,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                 ),
-                          height: isVerySmallScreen ? 44 : 65,
+                          height: isVerySmallScreen ? 40 : 52,
                         ),
                         Tab(
                           icon: Icon(Icons.history, size: 18),
@@ -127,7 +127,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                 ),
-                          height: isVerySmallScreen ? 44 : 65,
+                          height: isVerySmallScreen ? 40 : 52,
                         ),
                         Tab(
                           icon: Icon(Icons.analytics, size: 18),
@@ -140,7 +140,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                 ),
-                          height: isVerySmallScreen ? 44 : 65,
+                          height: isVerySmallScreen ? 40 : 52,
                         ),
                         Tab(
                           icon: Icon(Icons.assessment, size: 18),
@@ -153,57 +153,12 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                 ),
-                          height: isVerySmallScreen ? 44 : 65,
+                          height: isVerySmallScreen ? 40 : 52,
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-
-                // Scroll hint for all tabs
-                Container(
-                  margin: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 24),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF1E88E5).withOpacity(0.1),
-                        const Color(0xFF1E88E5).withOpacity(0.05),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF1E88E5).withOpacity(0.2),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: const Color(0xFF1E88E5),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'يمكنك التمرير لأسفل لرؤية المزيد من المحتوى',
-                        style: TextStyle(
-                          color: const Color(0xFF1E88E5),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.keyboard_arrow_down,
-                        color: const Color(0xFF1E88E5),
-                        size: 16,
-                      ),
-                    ],
-                  ),
-                ),
-
                 const SizedBox(height: 8),
 
                 // Tab Views - Enhanced with better visibility and scroll indicators
@@ -258,7 +213,7 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
   Widget _buildHeader(Color cardColor, Color textColor, Color subtitleColor, bool isSmallScreen) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 10 : 14, vertical: 10),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -268,135 +223,93 @@ class _AbsenceManagementScreenState extends State<AbsenceManagementScreen>
             Color(0xFFAD1457),
           ],
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFFE91E63).withAlpha(76),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
-      child: Column(
-        children: [
-          Row(
+      // Quick Stats - Single compact row, shrunk header
+      child: StreamBuilder<List<AbsenceModel>>(
+        stream: _databaseService.getAllAbsencesStream(),
+        builder: (context, snapshot) {
+          final allAbsences = snapshot.data ?? [];
+          final parentAbsences = allAbsences.where((a) => a.source == AbsenceSource.parent).toList();
+          final totalCount = parentAbsences.length;
+
+          return Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(51),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.person_off,
-                  color: Colors.white,
-                  size: 28,
-                ),
+              _buildStatItem(
+                'اليوم',
+                _getTodayAbsencesCount(parentAbsences).toString(),
+                Icons.today,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'إشعارات الغياب',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      'متابعة إشعارات الغياب من أولياء الأمور',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
+              _buildStatDivider(),
+              _buildStatItem(
+                'الأسبوع',
+                _getWeekAbsencesCount(parentAbsences).toString(),
+                Icons.date_range,
+              ),
+              _buildStatDivider(),
+              _buildStatItem(
+                'الشهر',
+                _getMonthAbsencesCount(parentAbsences).toString(),
+                Icons.calendar_month,
+              ),
+              _buildStatDivider(),
+              _buildStatItem(
+                'الإجمالي',
+                totalCount.toString(),
+                Icons.assessment,
               ),
             ],
-          ),
-          const SizedBox(height: 20),
-
-          // Quick Stats - Grid for responsiveness
-          StreamBuilder<List<AbsenceModel>>(
-            stream: _databaseService.getAllAbsencesStream(),
-            builder: (context, snapshot) {
-              final allAbsences = snapshot.data ?? [];
-              final parentAbsences = allAbsences.where((a) => a.source == AbsenceSource.parent).toList();
-              final pendingCount = parentAbsences.where((a) => a.status == AbsenceStatus.pending).length;
-              final approvedCount = parentAbsences.where((a) => a.status == AbsenceStatus.approved).length;
-              final rejectedCount = parentAbsences.where((a) => a.status == AbsenceStatus.rejected).length;
-              final totalCount = parentAbsences.length;
-
-              return GridView.count(
-                shrinkWrap: true,
-                crossAxisCount: isSmallScreen ? 2 : 4, // عمودين على الشاشات الضيقة لتجنب الزحام
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: isSmallScreen ? 1.6 : 0.75, // تعديل النسبة لمنع overflow المحتوى
-                children: [
-                  _buildStatItem(
-                    'اليوم',
-                    _getTodayAbsencesCount(parentAbsences).toString(),
-                    Icons.today,
-                  ),
-                  _buildStatItem(
-                    'هذا الأسبوع',
-                    _getWeekAbsencesCount(parentAbsences).toString(),
-                    Icons.date_range,
-                  ),
-                  _buildStatItem(
-                    'هذا الشهر',
-                    _getMonthAbsencesCount(parentAbsences).toString(),
-                    Icons.calendar_month,
-                  ),
-                  _buildStatItem(
-                    'الإجمالي',
-                    totalCount.toString(),
-                    Icons.assessment,
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon) {
+  Widget _buildStatDivider() {
     return Container(
-      padding: const EdgeInsets.all(8), // تقليل الـ padding
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(38),
-        borderRadius: BorderRadius.circular(12), // تقليل الـ border radius
-      ),
+      width: 1,
+      height: 28,
+      color: Colors.white.withAlpha(51),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon) {
+    return Expanded(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: Colors.white, size: 18), // تقليل حجم الأيقونة
-          const SizedBox(height: 4), // تقليل المسافة
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16, // تقليل حجم الخط
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white70, size: 12),
+              const SizedBox(width: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 2), // تقليل المسافة
+          const SizedBox(height: 1),
           Text(
             label,
             style: const TextStyle(
               color: Colors.white70,
-              fontSize: 10, // تقليل حجم الخط
+              fontSize: 9,
             ),
             textAlign: TextAlign.center,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
