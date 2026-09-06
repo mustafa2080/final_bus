@@ -14,7 +14,7 @@ import '../../models/bus_model.dart';
 import '../../models/user_model.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/base64_image_widget.dart';
-import '../../widgets/admin_bottom_navigation.dart';
+import '../../widgets/modern_bottom_navigation.dart';
 import '../../widgets/responsive_grid_view.dart';
 import '../../widgets/responsive_text.dart';
 import '../../widgets/student_avatar.dart';
@@ -98,11 +98,11 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'إدارة الطلاب',
                         style: TextStyle(
                           color: Colors.white,
@@ -110,7 +110,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
+                      const Text(
                         'إدارة بيانات الطلاب والتسكين',
                         style: TextStyle(
                           color: Colors.white70,
@@ -119,6 +119,33 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                       ),
                     ],
                   ),
+                ),
+                // زرار مؤقت لمزامنة عداد أكواد QR مع الأرقام الحالية
+                // (يُستخدم مرة واحدة بعد تفعيل ميزة إضافة الطالب من
+                // حساب ولي الأمر، عشان الأكواد الجديدة تكمل بالترتيب
+                // الصحيح بدل ما تبدأ من تصادم مع أرقام موجودة).
+                IconButton(
+                  tooltip: 'مزامنة عداد أكواد QR',
+                  icon: const Icon(Icons.sync, color: Colors.white),
+                  onPressed: () async {
+                    final scaffoldMessenger = ScaffoldMessenger.of(context);
+                    try {
+                      final maxValue = await _databaseService.syncQrCodeCounter();
+                      scaffoldMessenger.showSnackBar(
+                        SnackBar(
+                          content: Text('تمت المزامنة بنجاح. آخر كود مستخدم: $maxValue'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } catch (e) {
+                      scaffoldMessenger.showSnackBar(
+                        SnackBar(
+                          content: Text('فشلت المزامنة: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
                 ),
               ],
             ),
@@ -186,26 +213,40 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Column(
+      body: Stack(
         children: [
-          // Header Section
-          _buildHeader(),
+          Column(
+            children: [
+              // Header Section
+              _buildHeader(),
 
-          // Search Bar
-          _buildSearchBar(),
+              // Search Bar
+              _buildSearchBar(),
 
-          // Filters
-          _buildFilters(),
+              // Filters
+              _buildFilters(),
 
-          // Students List
-          Expanded(
-            child: _buildStudentsList(),
+              // Students List
+              Expanded(
+                child: _buildStudentsList(),
+              ),
+            ],
           ),
+          // طبقة شفافة تقفل قائمة الـ FAB عند الضغط في أي مكان خارجها
+          if (_isFABExpanded)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => setState(() => _isFABExpanded = false),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
         ],
       ),
       floatingActionButton: _buildExpandableFAB(),
-      bottomNavigationBar: const AdminBottomNavigation(
+      bottomNavigationBar: const ModernBottomNavigation(
         currentIndex: 1,
+        userType: UserType.admin,
       ),
     );
   }
@@ -567,7 +608,9 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
         if (filteredStudents.isEmpty) {
           return Center(
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
@@ -596,6 +639,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                   ),
                 ),
               ],
+              ),
             ),
           );
         }
@@ -677,8 +721,16 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
       );
     }).toList();
 
-    // ترتيب المجموعات حسب اسم ولي الأمر
-    groups.sort((a, b) => a.parentName.compareTo(b.parentName));
+    // ترتيب المجموعات حسب أصغر QR Code موجود داخل كل مجموعة
+    groups.sort((a, b) {
+      final int aMinQr = a.students
+          .map((s) => int.tryParse(s.qrCode.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
+          .reduce((x, y) => x < y ? x : y);
+      final int bMinQr = b.students
+          .map((s) => int.tryParse(s.qrCode.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
+          .reduce((x, y) => x < y ? x : y);
+      return aMinQr.compareTo(bMinQr);
+    });
 
     return groups;
   }
@@ -1591,100 +1643,250 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
   }
 
   void _showImportExcelDialog() {
+    final columns = [
+      {'icon': Icons.badge_outlined, 'label': 'اسم الطالب'},
+      {'icon': Icons.person_outline, 'label': 'اسم ولي الأمر'},
+      {'icon': Icons.phone_outlined, 'label': 'رقم هاتف ولي الأمر'},
+      {'icon': Icons.email_outlined, 'label': 'بريد ولي الأمر الإلكتروني'},
+      {'icon': Icons.school_outlined, 'label': 'اسم المدرسة'},
+      {'icon': Icons.grade_outlined, 'label': 'الصف'},
+      {'icon': Icons.location_on_outlined, 'label': 'العنوان'},
+      {'icon': Icons.directions_bus_outlined, 'label': 'خط الحافلة'},
+    ];
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.upload_file, color: Color(0xFF4CAF50)),
-            SizedBox(width: 8),
-            Text('استيراد الطلاب من Excel'),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'يمكنك استيراد قائمة الطلاب من ملف Excel بالتنسيق التالي:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
+                // Header بتدرج لوني
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[300]!),
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF43A047), Color(0xFF2E7D32)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(24),
+                      topRight: Radius.circular(24),
+                    ),
                   ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Text('الأعمدة (بالترتيب):', style: TextStyle(fontWeight: FontWeight.bold)),
-                      SizedBox(height: 4),
-                      Text('• اسم الطالب'),
-                      Text('• اسم ولي الأمر'),
-                      Text('• رقم هاتف ولي الأمر'),
-                      Text('• بريد ولي الأمر الإلكتروني'),
-                      Text('• اسم المدرسة'),
-                      Text('• الصف'),
-                      Text('• العنوان'),
-                      Text('• خط الحافلة'),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withAlpha(38),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.upload_file_rounded, color: Colors.white, size: 26),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'استيراد الطلاب',
+                              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'من ملف Excel',
+                              style: TextStyle(color: Colors.white70, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'ملاحظة: كل الحقول اختيارية ويتم قبول أي قيمة كما هي بدون تحقق.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 16),
-                // أزرار بعرض كامل فوق بعض لتفادي أي overflow على الشاشات الضيقة
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _downloadTemplate();
-                    },
-                    icon: const Icon(Icons.download),
-                    label: const Text('تحميل النموذج'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _pickExcelFile();
-                    },
-                    icon: const Icon(Icons.file_upload),
-                    label: const Text('اختيار ملف'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4CAF50),
-                      foregroundColor: Colors.white,
-                    ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.view_column_outlined, size: 16, color: Colors.grey[700]),
+                          const SizedBox(width: 6),
+                          Text(
+                            'ترتيب الأعمدة في الملف',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey[800]),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // شبكة أعمدة بشكل بطاقات مرقّمة بدل قائمة نقطية عادية
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF43A047).withAlpha(15),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFF43A047).withAlpha(40)),
+                        ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: List.generate(columns.length, (i) {
+                            final col = columns[i];
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.grey.withAlpha(35)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 18,
+                                    height: 18,
+                                    alignment: Alignment.center,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF43A047),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Text(
+                                      '${i + 1}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(col['icon'] as IconData, size: 14, color: const Color(0xFF2E7D32)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    col['label'] as String,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // ملاحظة بشكل بانر بدل نص رمادي عادي
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withAlpha(20),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue.withAlpha(45)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'كل الحقول اختيارية، ويتم قبول أي قيمة في الملف كما هي بدون أي تحقق.',
+                                style: TextStyle(fontSize: 12, color: Colors.blue[900], height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // نستخدم LayoutBuilder عشان نحول الأزرار لعمود على الشاشات
+                      // الضيقة جداً (أقل من ~340) بدل ما تتكسر نصوصها (overflow)
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final downloadBtn = OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _downloadTemplate();
+                            },
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: const Text('تحميل النموذج'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF1E88E5),
+                              side: const BorderSide(color: Color(0xFF1E88E5)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          );
+                          final pickBtn = ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _pickExcelFile();
+                            },
+                            icon: const Icon(Icons.file_upload_rounded, size: 18),
+                            label: const Text('اختيار ملف'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF43A047),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          );
+
+                          if (constraints.maxWidth < 340) {
+                            return Column(
+                              children: [
+                                SizedBox(width: double.infinity, child: pickBtn),
+                                const SizedBox(height: 10),
+                                SizedBox(width: double.infinity, child: downloadBtn),
+                              ],
+                            );
+                          }
+
+                          return Row(
+                            children: [
+                              Expanded(child: downloadBtn),
+                              const SizedBox(width: 10),
+                              Expanded(child: pickBtn),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _exportAllStudentsData();
+                          },
+                          icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                          label: const Text('تصدير كل بيانات الطلاب (يشمل رمز QR)'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF6D4C9F),
+                            side: const BorderSide(color: Color(0xFF6D4C9F)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text('إغلاق', style: TextStyle(color: Colors.grey[600])),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-        ],
       ),
     );
   }
@@ -1791,13 +1993,147 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
     }
   }
 
+  // تصدير كل بيانات الطلاب الفعلية (بما فيها رمز QR) إلى ملف Excel،
+  // عشان تستخدمه بعدين لتوليد صور رمز QR لكل طالب من أداة خارجية.
+  void _exportAllStudentsData() async {
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('جاري تجهيز ملف تصدير بيانات الطلاب...'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
+      final students = await _databaseService.getAllActiveStudents();
+
+      // ترتيب الطلاب حسب رقم QR تصاعديًا (يبدأ من الأصغر، مثلاً 1000)
+      students.sort((a, b) {
+        final int aQr = int.tryParse(a.qrCode.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final int bQr = int.tryParse(b.qrCode.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return aQr.compareTo(bQr);
+      });
+
+      var excelFile = excel.Excel.createExcel();
+      excel.Sheet sheetObject = excelFile['بيانات الطلاب'];
+
+      final headers = [
+        'اسم الطالب',
+        'رمز QR',
+        'اسم ولي الأمر',
+        'هاتف ولي الأمر',
+        'بريد ولي الأمر الإلكتروني',
+        'اسم المدرسة',
+        'الصف',
+        'خط الحافلة',
+        'العنوان',
+        'الحالة الحالية',
+        'ملاحظات',
+      ];
+
+      for (int i = 0; i < headers.length; i++) {
+        sheetObject
+            .cell(excel.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+            .value = excel.TextCellValue(headers[i]);
+      }
+
+      for (int row = 0; row < students.length; row++) {
+        final s = students[row];
+        final rowData = [
+          s.name,
+          s.qrCode,
+          s.parentName,
+          s.parentPhone,
+          s.parentEmail,
+          s.schoolName,
+          s.grade,
+          s.busRoute,
+          s.address,
+          s.statusDisplayText,
+          s.notes,
+        ];
+        for (int col = 0; col < rowData.length; col++) {
+          sheetObject
+              .cell(excel.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1))
+              .value = excel.TextCellValue(rowData[col]);
+        }
+      }
+
+      if (excelFile.sheets.containsKey('Sheet1') && excelFile.sheets.length > 1) {
+        excelFile.delete('Sheet1');
+      }
+
+      final bytes = excelFile.encode();
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('فشل إنشاء بيانات ملف Excel');
+      }
+
+      final data = Uint8List.fromList(bytes);
+      final now = DateTime.now();
+      final fileName =
+          'بيانات_الطلاب_${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.xlsx';
+
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'حفظ ملف بيانات الطلاب',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        bytes: data,
+      );
+
+      if (!kIsWeb) {
+        if (savePath == null) {
+          return;
+        }
+        try {
+          final file = File(savePath);
+          if (!await file.exists() || (await file.length()) == 0) {
+            await file.writeAsBytes(data);
+          }
+        } catch (e) {
+          debugPrint('export fallback write skipped: $e');
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تم تصدير بيانات ${students.length} طالب بنجاح: $fileName'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ في تصدير بيانات الطلاب: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   void _pickExcelFile() async {
     try {
-      // اختيار ملف Excel
+      // نمسح أي ملفات مؤقتة قديمة خزّنها file_picker قبل ما نفتح الاختيار،
+      // عشان نتجنب مشكلة إن اختيار نفس اسم الملف تاني يرجّع نسخة قديمة
+      // (cache) بدل الملف الجديد الفعلي - بيحصل خصوصاً على أندرويد.
+      try {
+        await FilePicker.platform.clearTemporaryFiles();
+      } catch (e) {
+        debugPrint('clearTemporaryFiles skipped: $e');
+      }
+
+      // اختيار ملف Excel - withData:true يجبر الـ picker يقرا البايتس
+      // فعلياً وقت الاختيار بدل الاعتماد على path مخزّن ممكن يبقى قديم.
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
         allowMultiple: false,
+        withData: true,
       );
 
       if (result != null) {
@@ -1808,10 +2144,11 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
           ),
         );
 
-        Uint8List? fileBytes;
-        if (kIsWeb) {
-          fileBytes = result.files.single.bytes;
-        } else {
+        Uint8List? fileBytes = result.files.single.bytes;
+
+        // احتياطي: لو withData ما رجعش بايتس لأي سبب (بعض المنصات)،
+        // نرجع نقرأ من المسار مباشرة كخطة بديلة.
+        if (fileBytes == null && !kIsWeb && result.files.single.path != null) {
           final file = File(result.files.single.path!);
           fileBytes = await file.readAsBytes();
         }
