@@ -54,10 +54,24 @@ async function deleteQueryBatch(query, batchSize, resolve, reject, onCount) {
   }
 }
 
+async function resetQrCodeCounter() {
+  // بعد مسح كل الطلاب، لازم نصفّر عداد أكواد QR (/counters/qrCode)
+  // عشان أول طالب جديد يترفع بعد كده يبدأ من 1000 تاني، مش يكمل
+  // من آخر رقم كان وصله قبل الحذف.
+  await db.collection('counters').doc('qrCode').set({
+    lastValue: 999,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  console.log('تم تصفير عداد أكواد QR (/counters/qrCode) - هيبدأ من 1000 تاني.');
+}
+
 async function main() {
   console.log(`جاري حذف كل المستندات من collection: "${COLLECTION_NAME}" ...`);
   const total = await deleteCollection(COLLECTION_NAME, BATCH_SIZE);
   console.log(`تم الانتهاء. إجمالي المستندات المحذوفة: ${total ?? 'غير محدد'}`);
+
+  await resetQrCodeCounter();
+
   process.exit(0);
 }
 
